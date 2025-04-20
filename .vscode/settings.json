@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "stdio.h": "c",
+        "top.h": "c",
+        "memmanager..h": "c",
+        "memmanager.h": "c"
+    }
+}
