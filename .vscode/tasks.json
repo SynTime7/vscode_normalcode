@@ -9,6 +9,7 @@
                 "-g",
                 "${file}",
                 "${workspaceFolder}\\app\\MemManager.c",
+                "${workspaceFolder}\\app\\mongoose.c",
                 "-I",
                 "${workspaceFolder}\\include",
                 "-I",
