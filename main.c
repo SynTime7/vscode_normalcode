@@ -154,65 +154,81 @@ const char *head_fmt =
     "\r\n"
     "%s";
 
-const char *css_style =
+const char *css_style_inputandview =
     "<style>"
     "body {"
-    "  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;"
-    "  background: linear-gradient(135deg, #667eea, #764ba2);"
-    "  color: #fff;"
-    "  margin: 0; padding: 0;"
-    "  display: flex;"
-    "  justify-content: center;"
-    "  align-items: center;"
-    "  height: 100vh;"
+        "background: linear-gradient(135deg, #f6d365, #fda085);"
+        "color: #5a3e36;"
+        "font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;"
+        "padding: 30px;"
+        "margin: 0;"
+        "height: 100vh;"
+        "display: flex;"
+        "justify-content: center;"
+        "align-items: center;"
     "}"
     ".container {"
-    "  background: rgba(255, 255, 255, 0.1);"
-    "  padding: 30px;"
-    "  border-radius: 12px;"
-    "  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);"
-    "  width: 320px;"
-    "}"
-    "h2 {"
-    "  text-align: center;"
-    "  margin-bottom: 20px;"
-    "  font-weight: 700;"
-    "}"
-    "form {"
-    "  display: flex;"
-    "  flex-direction: column;"
+        "max-width: 600px;"
+        "width: 100%;"
+        "background: #fff1e6;"
+        "padding: 30px 35px;"
+        "border-radius: 16px;"
+        "box-shadow: 0 8px 24px rgba(253, 160, 133, 0.4);"
+        "border: 1px solid #f7c59f;"
+        "color: #5a3e36;"
     "}"
     "input[type=text] {"
-    "  padding: 10px;"
-    "  margin-bottom: 15px;"
-    "  border: none;"
-    "  border-radius: 6px;"
-    "  font-size: 16px;"
+        "width: 100%;"
+        "padding: 14px 18px;"
+        "margin: 12px 0;"
+        "box-sizing: border-box;"
+        "border-radius: 10px;"
+        "border: 1.8px solid #f7a072;"
+        "background: #fff7f0;"
+        "color: #5a3e36;"
+        "font-size: 16px;"
+        "transition: border-color 0.3s ease, background-color 0.3s ease;"
+    "}"
+    "input[type=text]:focus {"
+        "outline: none;"
+        "border-color: #f28c28;"
+        "background-color: #fff3e0;"
+        "box-shadow: 0 0 10px #f28c28;"
     "}"
     "input[type=submit] {"
-    "  background-color: #5a67d8;"
-    "  color: white;"
-    "  padding: 12px;"
-    "  border: none;"
-    "  border-radius: 6px;"
-    "  font-size: 16px;"
-    "  cursor: pointer;"
-    "  transition: background-color 0.3s ease;"
+        "background-color: #f28c28;"
+        "color: #fff;"
+        "padding: 14px 28px;"
+        "border: none;"
+        "border-radius: 10px;"
+        "cursor: pointer;"
+        "font-weight: 700;"
+        "font-size: 16px;"
+        "transition: background-color 0.3s ease, box-shadow 0.3s ease;"
+        "box-shadow: 0 5px 15px rgba(242, 140, 40, 0.5);"
     "}"
     "input[type=submit]:hover {"
-    "  background-color: #434190;"
+        "background-color: #f5a623;"
+        "box-shadow: 0 7px 20px rgba(245, 166, 35, 0.7);"
+    "}"
+    "pre#output {"
+        "background: #fff3e0;"
+        "padding: 22px;"
+        "border-radius: 16px;"
+        "height: 320px;"
+        "overflow-y: auto;"
+        "white-space: pre-wrap;"
+        "word-wrap: break-word;"
+        "font-size: 15px;"
+        "margin-top: 28px;"
+        "color: #6b4c3b;"
+        "box-shadow: inset 0 0 12px #f7c59f;"
+        "font-family: Consolas, monospace;"
     "}"
     "</style>";
 
-const char *css_style_inputandview =
-    "<style>"
-    "body { background: #222; color: #0f0; font-family: monospace; padding: 20px; }"
-    ".container { max-width: 600px; margin: auto; background: #111; padding: 20px; border-radius: 8px; }"
-    "input[type=text] { width: 100%; padding: 8px; margin: 6px 0; box-sizing: border-box; border-radius: 4px; border: 1px solid #555; background: #333; color: #0f0; }"
-    "input[type=submit] { background-color: #0f0; color: #000; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }"
-    "input[type=submit]:hover { background-color: #6f6; }"
-    "pre#output { background: rgba(0,0,0,0.7); padding: 15px; border-radius: 8px; height: 300px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word; font-size: 14px; margin-top: 20px; }"
-    "</style>";
+
+
 
 const char *html_page_inputandview =
     "<!DOCTYPE html>"
@@ -226,9 +242,9 @@ const char *html_page_inputandview =
     "<body>"
     "<div class=\"container\">"
     "<h2>请输入命令和参数</h2>"
-    "<form method=\"POST\" action=\"/\">"
-    "命令: <input type=\"text\" name=\"command\" placeholder=\"例如: dir\" required><br>"
-    "参数: <input type=\"text\" name=\"param\" placeholder=\"例如: C:\\\\\"><br>"
+    "<form id=\"cmdForm\">"
+    "命令: <input type=\"text\" id=\"command\" placeholder=\"例如: dir\" required><br>"
+    "参数: <input type=\"text\" id=\"param\" placeholder=\"例如: C:\\\\\"><br>"
     "<input type=\"submit\" value=\"执行\">"
     "</form>"
     "<h2>命令执行输出</h2>"
@@ -243,33 +259,83 @@ const char *html_page_inputandview =
     "};"
     "ws.onopen = function() { console.log('WebSocket连接已建立'); };"
     "ws.onclose = function() { console.log('WebSocket连接已关闭'); };"
+    "document.getElementById('cmdForm').onsubmit = function(e) {"
+    "  e.preventDefault();"
+    "  var cmd = document.getElementById('command').value.trim();"
+    "  var param = document.getElementById('param').value.trim();"
+    "  var msg = cmd + ';' + param;"
+    "  if (ws.readyState === WebSocket.OPEN) {"
+    "    ws.send(msg);"
+    "    output.textContent += '> ' + msg + '\\n';"
+    "  } else {"
+    "    alert('WebSocket未连接');"
+    "  }"
+    "  return false;"
+    "};"
     "</script>"
     "</body>"
     "</html>";
 
-const char *html_frame =
-    "<!DOCTYPE html>"
-    "<html lang=\"zh-CN\">"
-    "<head>"
-    "<meta charset=\"UTF-8\">"
-    "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
-    "<title>命令执行服务器</title>"
-    "%.*s" // 预留CSS插入位置
-    "</head>"
-    "<body>"
-    "<div class=\"container\">"
-    "<h2>请输入命令和参数</h2>"
-    "<form method=\"POST\" action=\"/\">"
-    "命令: <input type=\"text\" name=\"command\" placeholder=\"例如: dir\" required><br>"
-    "参数: <input type=\"text\" name=\"param\" placeholder=\"例如: C:\\\\\"><br>"
-    "<input type=\"submit\" value=\"执行\">"
-    "</form>"
-    "</div>"
-    "</body>"
-    "</html>";
 
 static struct mg_connection *ws_conn = NULL; // 保存WebSocket连接指针
 static struct mg_timer timer;                // 定时器对象
+
+// 去除首尾空白同上
+static char *trim(char *str) {
+    char *end;
+    while (isspace((unsigned char)*str)) str++;
+    if (*str == 0) return str;
+    end = str + strlen(str) - 1;
+    while (end > str && isspace((unsigned char)*end)) end--;
+    *(end + 1) = '\0';
+    return str;
+}
+
+// 解析命令和参数，支持转义分号
+void parse_cmd_param_escaped(char *msg, char **cmd, char **param) {
+    char *p = msg;
+    char *sep = NULL;
+    int escaped = 0;
+
+    while (*p) {
+        if (!escaped && *p == '\\') {
+            escaped = 1;
+        } else {
+            if (!escaped && *p == ';') {
+                sep = p;
+                break;
+            }
+            escaped = 0;
+        }
+        p++;
+    }
+
+    if (sep) {
+        *sep = '\0';
+        *cmd = trim(msg);
+
+        // 参数部分处理转义字符，将 \; 替换为 ;
+        char *src = sep + 1;
+        char *dst = src;
+        while (*src) {
+            if (*src == '\\' && *(src + 1) == ';') {
+                *dst++ = ';';
+                src += 2;
+            } else {
+                *dst++ = *src++;
+            }
+        }
+        *dst = '\0';
+
+        *param = trim(sep + 1);
+        if (**param == '\0') {
+            *param = NULL;
+        }
+    } else {
+        *cmd = trim(msg);
+        *param = NULL;
+    }
+}
 
 // Connection event handler function
 static void fn(struct mg_connection *c, int ev, void *ev_data)
@@ -325,7 +391,21 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
     case MG_EV_WS_MSG:
     {
         // 可处理客户端消息，示例不做处理
-        break;
+        struct mg_ws_message *wm = (struct mg_ws_message *)ev_data;
+        // 申请缓冲区，拷贝消息并添加字符串结束符
+        char *msg = malloc(wm->data.len + 1);
+        if (msg == NULL)
+        {
+            const char *err = "服务器内存不足\n";
+            struct mg_str err_str = {(char *)err, strlen(err)};
+            mg_ws_send(c, err_str.buf, err_str.len, WEBSOCKET_OP_TEXT);
+            break;
+        }
+        memcpy(msg, wm->data.buf, wm->data.len);
+        msg[wm->data.len] = '\0'; // 转成C字符串
+
+        printf("收到客户端命令: %s\n", msg);
+
     }
     case MG_EV_CLOSE:
     {
