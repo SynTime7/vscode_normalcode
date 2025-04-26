@@ -5,147 +5,16 @@
 #include <winsock2.h>
 #include <ctype.h> // 用于isxdigit函数
 #include "top.h"
-
+#include "mongoose.h"
 #pragma comment(lib, "ws2_32.lib")
 
-// 生成包含输入表单和命令执行结果的HTML页面
-// 参数说明：
-//   command - 用户输入的命令字符串，NULL或空字符串表示无命令输入
-//   param   - 用户输入的参数字符串，NULL或空字符串表示无参数
-//   result  - 命令执行结果字符串，NULL或空字符串表示无结果显示
-// 返回值：
-//   返回动态分配的字符串，使用后需free释放
-char *generate_page_with_result(const char *command, const char *param, const char *result)
-{
-    char cmd_line[512] = {0};
-    if (command && strlen(command) > 0)
-    {
-        if (param && strlen(param) > 0)
-        {
-            snprintf(cmd_line, sizeof(cmd_line), "%s %s", command, param);
-        }
-        else
-        {
-            snprintf(cmd_line, sizeof(cmd_line), "%s", command);
-        }
-    }
+static struct mg_connection *ws_conn = NULL; // 保存WebSocket连接指针
+static struct mg_timer timer;                // 定时器对象
 
-    const char *html_template_start =
-        "HTTP/1.1 200 OK\r\n"
-        "Content-Type: text/html; charset=utf-8\r\n\r\n"
-        "<!DOCTYPE html>"
-        "<html lang=\"zh-CN\">"
-        "<head>"
-        "<meta charset=\"UTF-8\">"
-        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
-        "<title>命令执行服务器</title>"
-        "<style>"
-        "body {"
-        "  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;"
-        "  background: linear-gradient(135deg, #667eea, #764ba2);"
-        "  color: #fff;"
-        "  margin: 0; padding: 20px;"
-        "  display: flex;"
-        "  justify-content: center;"
-        "  align-items: flex-start;"
-        "  min-height: 100vh;"
-        "}"
-        ".container {"
-        "  background: rgba(255, 255, 255, 0.1);"
-        "  padding: 30px;"
-        "  border-radius: 12px;"
-        "  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);"
-        "  width: 400px;"
-        "  max-width: 90vw;"
-        "}"
-        "h2 {"
-        "  text-align: center;"
-        "  margin-bottom: 20px;"
-        "  font-weight: 700;"
-        "}"
-        "form {"
-        "  display: flex;"
-        "  flex-direction: column;"
-        "}"
-        "input[type=text] {"
-        "  padding: 10px;"
-        "  margin-bottom: 15px;"
-        "  border: none;"
-        "  border-radius: 6px;"
-        "  font-size: 16px;"
-        "}"
-        "input[type=submit] {"
-        "  background-color: #5a67d8;"
-        "  color: white;"
-        "  padding: 12px;"
-        "  border: none;"
-        "  border-radius: 6px;"
-        "  font-size: 16px;"
-        "  cursor: pointer;"
-        "  transition: background-color 0.3s ease;"
-        "}"
-        "input[type=submit]:hover {"
-        "  background-color: #434190;"
-        "}"
-        "pre {"
-        "  background: rgba(0, 0, 0, 0.3);"
-        "  padding: 15px;"
-        "  border-radius: 8px;"
-        "  overflow-x: auto;"
-        "  white-space: pre-wrap;"
-        "  word-wrap: break-word;"
-        "  font-size: 14px;"
-        "  margin-top: 20px;"
-        "}"
-        "</style>"
-        "</head>"
-        "<body>"
-        "<div class=\"container\">"
-        "<h2>请输入命令和参数</h2>"
-        "<form method=\"POST\" action=\"/\">"
-        "命令: <input type=\"text\" name=\"command\" placeholder=\"例如: dir\" value=\"%s\" required><br>"
-        "参数: <input type=\"text\" name=\"param\" placeholder=\"例如: C:\\\\\" value=\"%s\"><br>"
-        "<input type=\"submit\" value=\"执行\">"
-        "</form>";
+#define UPLOAD_DIR "uploads"
+#define MAX_UPLOAD_SIZE (10 * 1024 * 1024) // 最大10MB
 
-    const char *html_template_end =
-        "</div>"
-        "</body>"
-        "</html>";
-
-    // 估算页面大小，预留足够空间
-    size_t page_size = strlen(html_template_start) + strlen(html_template_end) + 1024;
-    if (result && strlen(result) > 0)
-    {
-        page_size += strlen(result) + strlen(cmd_line) + 64;
-    }
-
-    char *page = (char *)malloc(page_size);
-    if (!page)
-        return NULL;
-
-    // 写入页面头部和表单，填充命令和参数默认值
-    snprintf(page, page_size, html_template_start,
-             command ? command : "",
-             param ? param : "");
-
-    // 如果有执行结果，追加显示
-    if (result && strlen(result) > 0)
-    {
-        char result_section[2048];
-        snprintf(result_section, sizeof(result_section),
-                 "<h2>执行命令: %s</h2><pre>%s</pre>",
-                 cmd_line, result);
-        strncat(page, result_section, page_size - strlen(page) - 1);
-    }
-
-    // 追加页面尾部
-    strncat(page, html_template_end, page_size - strlen(page) - 1);
-
-    return page;
-}
-
-// HTTP响应头
+// HTTP响应头格式字符串
 const char *head_fmt =
     "HTTP/1.1 200 OK\r\n"
     "Content-Type: text/html; charset=utf-8\r\n"
@@ -154,248 +23,619 @@ const char *head_fmt =
     "\r\n"
     "%s";
 
+// 页面CSS样式，定义了页面整体风格和控件样式
 const char *css_style_inputandview =
     "<style>"
     "body {"
-        "background: linear-gradient(135deg, #f6d365, #fda085);"
-        "color: #5a3e36;"
-        "font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;"
-        "padding: 30px;"
-        "margin: 0;"
-        "height: 100vh;"
-        "display: flex;"
-        "justify-content: center;"
-        "align-items: center;"
+    "background: linear-gradient(135deg, #9a7fff, #bfa0ff);"
+    "color: #5a3dbf;"
+    "font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;"
+    "padding: 30px;"
+    "margin: 0;"
+    "height: 100vh;"
+    "display: flex;"
+    "justify-content: center;"
+    "align-items: center;"
     "}"
     ".container {"
-        "max-width: 600px;"
-        "width: 100%;"
-        "background: #fff1e6;"
-        "padding: 30px 35px;"
-        "border-radius: 16px;"
-        "box-shadow: 0 8px 24px rgba(253, 160, 133, 0.4);"
-        "border: 1px solid #f7c59f;"
-        "color: #5a3e36;"
+    "max-width: 600px;"
+    "width: 100%;"
+    "background: #e6dbff;"
+    "padding: 30px 35px;"
+    "border-radius: 16px;"
+    "box-shadow: 0 8px 24px rgba(154, 127, 255, 0.3);"
+    "border: 1px solid #b3a1ff;"
+    "color: #5a3dbf;"
     "}"
     "input[type=text] {"
-        "width: 100%;"
-        "padding: 14px 18px;"
-        "margin: 12px 0;"
-        "box-sizing: border-box;"
-        "border-radius: 10px;"
-        "border: 1.8px solid #f7a072;"
-        "background: #fff7f0;"
-        "color: #5a3e36;"
-        "font-size: 16px;"
-        "transition: border-color 0.3s ease, background-color 0.3s ease;"
+    "width: 100%;"
+    "padding: 14px 18px;"
+    "margin: 12px 0;"
+    "box-sizing: border-box;"
+    "border-radius: 10px;"
+    "border: 1.8px solid #b3a1ff;"
+    "background: #f2eaff;"
+    "color: #5a3dbf;"
+    "font-size: 16px;"
+    "transition: border-color 0.3s ease, background-color 0.3s ease;"
     "}"
     "input[type=text]:focus {"
-        "outline: none;"
-        "border-color: #f28c28;"
-        "background-color: #fff3e0;"
-        "box-shadow: 0 0 10px #f28c28;"
+    "outline: none;"
+    "border-color: #7f66ff;"
+    "background-color: #d9ccff;"
+    "box-shadow: 0 0 10px #7f66ff;"
     "}"
-    "input[type=submit] {"
-        "background-color: #f28c28;"
-        "color: #fff;"
-        "padding: 14px 28px;"
-        "border: none;"
-        "border-radius: 10px;"
-        "cursor: pointer;"
-        "font-weight: 700;"
-        "font-size: 16px;"
-        "transition: background-color 0.3s ease, box-shadow 0.3s ease;"
-        "box-shadow: 0 5px 15px rgba(242, 140, 40, 0.5);"
+    ".button-row {"
+    "display: flex;"
+    "gap: 12px;"
+    "margin-top: 12px;"
+    "justify-content: flex-start;"
     "}"
-    "input[type=submit]:hover {"
-        "background-color: #f5a623;"
-        "box-shadow: 0 7px 20px rgba(245, 166, 35, 0.7);"
+    ".button-row input[type=submit],"
+    ".button-row button {"
+    "flex: none;"
+    "padding: 14px 28px;"
+    "border-radius: 10px;"
+    "font-weight: 700;"
+    "font-size: 16px;"
+    "cursor: pointer;"
+    "box-shadow: 0 5px 15px rgba(127, 102, 255, 0.5);"
+    "transition: background-color 0.3s ease, box-shadow 0.3s ease;"
+    "}"
+    ".button-row input[type=submit] {"
+    "background-color: #7f66ff;"
+    "color: #fff;"
+    "border: none;"
+    "}"
+    ".button-row input[type=submit]:hover {"
+    "background-color: #a18cff;"
+    "box-shadow: 0 7px 20px rgba(161, 140, 255, 0.7);"
+    "}"
+    ".button-row button {"
+    "background-color: #f28c28;"
+    "color: #fff;"
+    "border: none;"
+    "box-shadow: 0 5px 15px rgba(242, 140, 40, 0.5);"
+    "}"
+    ".button-row button:hover {"
+    "background-color: #f5a64c;"
+    "box-shadow: 0 7px 20px rgba(245, 166, 76, 0.7);"
     "}"
     "pre#output {"
-        "background: #fff3e0;"
-        "padding: 22px;"
-        "border-radius: 16px;"
-        "height: 320px;"
-        "overflow-y: auto;"
-        "white-space: pre-wrap;"
-        "word-wrap: break-word;"
-        "font-size: 15px;"
-        "margin-top: 28px;"
-        "color: #6b4c3b;"
-        "box-shadow: inset 0 0 12px #f7c59f;"
-        "font-family: Consolas, monospace;"
+    "background: #d9ccff;"
+    "padding: 22px;"
+    "border-radius: 16px;"
+    "height: 320px;"
+    "overflow-y: auto;"
+    "white-space: pre-wrap;"
+    "word-wrap: break-word;"
+    "font-size: 15px;"
+    "margin-top: 28px;"
+    "color: #6b4fcf;"
+    "box-shadow: inset 0 0 12px #b3a1ff;"
+    "font-family: Consolas, monospace;"
+    "}"
+    ".modal {"
+    "display: none;"
+    "position: fixed;"
+    "z-index: 1000;"
+    "left: 0; top: 0;"
+    "width: 100%; height: 100%;"
+    "overflow: auto;"
+    "background-color: rgba(90, 61, 191, 0.25);"
+    "}"
+    ".modal-content {"
+    "background-color: #e6dbff;"
+    "margin: 10% auto;"
+    "padding: 20px 30px;"
+    "border-radius: 16px;"
+    "max-width: 400px;"
+    "box-shadow: 0 8px 24px rgba(154, 127, 255, 0.3);"
+    "color: #5a3dbf;"
+    "position: relative;"
+    "box-sizing: border-box;"
+    "}"
+    ".close {"
+    "color: #5a3dbf;"
+    "position: absolute;"
+    "top: 12px;"
+    "right: 20px;"
+    "font-size: 28px;"
+    "font-weight: bold;"
+    "cursor: pointer;"
+    "}"
+    ".close:hover {"
+    "color: #7f66ff;"
+    "}"
+    "#uploadForm input[type=file] {"
+    "width: 100%;"
+    "padding: 6px 0;"
+    "margin-top: 10px;"
+    "cursor: pointer;"
+    "}"
+    "#uploadForm input[type=submit] {"
+    "margin-top: 20px;"
+    "width: 100%;"
+    "background-color: #7f66ff;"
+    "color: #fff;"
+    "padding: 14px 0;"
+    "border: none;"
+    "border-radius: 10px;"
+    "cursor: pointer;"
+    "font-weight: 700;"
+    "font-size: 16px;"
+    "transition: background-color 0.3s ease, box-shadow 0.3s ease;"
+    "box-shadow: 0 5px 15px rgba(127, 102, 255, 0.5);"
+    "}"
+    "#uploadForm input[type=submit]:hover {"
+    "background-color: #a18cff;"
+    "box-shadow: 0 7px 20px rgba(161, 140, 255, 0.7);"
+    "}"
+    "#uploadStatus {"
+    "margin-top: 15px;"
+    "font-weight: 600;"
+    "color: #5a3dbf;"
+    "}"
+    /* 新增保存目录输入框样式 */
+    "#uploadForm label[for=saveDir] {"
+    "display: block;"
+    "margin-top: 12px;"
+    "font-weight: 600;"
+    "color: #5a3dbf;"
+    "}"
+    "#uploadForm input#saveDir {"
+    "width: 100%;"
+    "padding: 10px 14px;"
+    "margin-top: 6px;"
+    "border-radius: 10px;"
+    "border: 1.8px solid #b3a1ff;"
+    "background: #f2eaff;"
+    "color: #5a3dbf;"
+    "font-size: 15px;"
+    "box-sizing: border-box;"
+    "transition: border-color 0.3s ease, background-color 0.3s ease;"
+    "}"
+    "#uploadForm input#saveDir:focus {"
+    "outline: none;"
+    "border-color: #7f66ff;"
+    "background-color: #d9ccff;"
+    "box-shadow: 0 0 10px #7f66ff;"
     "}"
     "</style>";
 
-
-
-
 const char *html_page_inputandview =
-    "<!DOCTYPE html>"
-    "<html lang=\"zh-CN\">"
-    "<head>"
-    "<meta charset=\"UTF-8\">"
-    "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
-    "<title>命令执行服务器</title>"
-    "%.*s" // CSS插入位置
-    "</head>"
-    "<body>"
-    "<div class=\"container\">"
-    "<h2>请输入命令和参数</h2>"
-    "<form id=\"cmdForm\">"
-    "命令: <input type=\"text\" id=\"command\" placeholder=\"例如: dir\" required><br>"
-    "参数: <input type=\"text\" id=\"param\" placeholder=\"例如: C:\\\\\"><br>"
-    "<input type=\"submit\" value=\"执行\">"
-    "</form>"
-    "<h2>命令执行输出</h2>"
-    "<pre id=\"output\"></pre>"
-    "</div>"
-    "<script>"
-    "var ws = new WebSocket('ws://' + location.host + '/ws');"
-    "var output = document.getElementById('output');"
-    "ws.onmessage = function(evt) {"
-    "  output.textContent += evt.data + '\\n';"
-    "  output.scrollTop = output.scrollHeight;"
-    "};"
-    "ws.onopen = function() { console.log('WebSocket连接已建立'); };"
-    "ws.onclose = function() { console.log('WebSocket连接已关闭'); };"
-    "document.getElementById('cmdForm').onsubmit = function(e) {"
-    "  e.preventDefault();"
-    "  var cmd = document.getElementById('command').value.trim();"
-    "  var param = document.getElementById('param').value.trim();"
-    "  var msg = cmd + ';' + param;"
-    "  if (ws.readyState === WebSocket.OPEN) {"
-    "    ws.send(msg);"
-    "    output.textContent += '> ' + msg + '\\n';"
-    "  } else {"
-    "    alert('WebSocket未连接');"
-    "  }"
-    "  return false;"
-    "};"
-    "</script>"
-    "</body>"
-    "</html>";
+    "<!DOCTYPE html>"                                                          /* HTML文档类型声明 */
+    "<html lang=\"zh-CN\">"                                                    /* HTML根元素，语言为中文 */
+    "<head>"                                                                   /* 头部开始 */
+    "<meta charset=\"UTF-8\">"                                                 /* 字符编码声明 */
+    "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">" /* 响应式视口设置 */
+    "<title>命令执行服务器</title>"                                            /* 页面标题 */
+    "%.*s"                                                                     /* CSS插入位置 */
+    "</head>"                                                                  /* 头部结束 */
+    "<body>"                                                                   /* 页面主体开始 */
+    "<div class=\"container\">"                                                /* 主容器，包含命令输入表单和输出显示区域 */
+    "  <h2>请输入命令和参数</h2>"
+    "  <form id=\"cmdForm\">" /* 命令输入表单 */
+    "    命令: <input type=\"text\" id=\"command\" placeholder=\"例如: dir\" required><br>"
+    "    参数: <input type=\"text\" id=\"param\" placeholder=\"例如: C:\\\\\"><br>"
+    "    <div class=\"button-row\">"
+    "      <input type=\"submit\" value=\"执行\">"
+    "      <button id=\"openUploadBtn\" type=\"button\">上传文件</button>"
+    "    </div>"
+    "  </form>"
+    "  <h2>命令执行输出</h2>"
+    "  <pre id=\"output\"></pre>"
+    "</div>" /* 主容器结束 */
 
+    "<div id=\"uploadModal\" class=\"modal\">" /* 文件上传模态框，默认隐藏 */
+    "  <div class=\"modal-content\">"
+    "    <span id=\"closeModal\" class=\"close\">&times;</span>" /* 关闭按钮 */
+    "    <h2>上传文件到服务器（分块上传）</h2>"
+    "    <form id=\"uploadForm\">"
+    "      <label for=\"saveDir\">保存目录:</label>"
+    "      <input type=\"text\" id=\"saveDir\" name=\"saveDir\" placeholder=\"例如: upload\" required>"
+    "      <input type=\"file\" id=\"fileInput\" name=\"file\" required>"
+    "      <input type=\"button\" id=\"uploadBtn\" value=\"开始上传\">"
+    "    </form>"
+    "    <div id=\"uploadStatus\"></div>"                                                                                          /* 上传状态显示 */
+    "    <progress id=\"uploadProgress\" value=\"0\" max=\"100\" style=\"width:100%; margin-top:10px; display:none;\"></progress>" /* 上传进度条，默认隐藏 */
+    "  </div>"
+    "</div>" /* 文件上传模态框结束 */
 
-static struct mg_connection *ws_conn = NULL; // 保存WebSocket连接指针
-static struct mg_timer timer;                // 定时器对象
+    "<script>"                                                   /* JavaScript脚本开始 */
+    "document.addEventListener('DOMContentLoaded', function() {" /* 页面加载完成事件 */
+    "  var ws = new WebSocket('ws://' + location.host + '/ws');" /* 建立WebSocket连接 */
+    "  var output = document.getElementById('output');"          /* 获取输出区域 */
 
-// 去除首尾空白同上
-static char *trim(char *str) {
-    char *end;
-    while (isspace((unsigned char)*str)) str++;
-    if (*str == 0) return str;
-    end = str + strlen(str) - 1;
-    while (end > str && isspace((unsigned char)*end)) end--;
-    *(end + 1) = '\0';
-    return str;
+    "  ws.onmessage = function(evt) {" /* 接收WebSocket消息 */
+    "    output.textContent += evt.data + '\\n';"
+    "    output.scrollTop = output.scrollHeight;" /* 滚动到底部 */
+    "  };"
+
+    "  ws.onopen = function() { console.log('WebSocket连接已建立'); };"  /* 连接打开 */
+    "  ws.onclose = function() { console.log('WebSocket连接已关闭'); };" /* 连接关闭 */
+
+    "  document.getElementById('cmdForm').onsubmit = function(e) {" /* 命令表单提交事件 */
+    "    e.preventDefault();"
+    "    var cmd = document.getElementById('command').value.trim();"
+    "    var param = document.getElementById('param').value.trim();"
+    "    var msg = cmd + ';' + param;"
+    "    if (ws.readyState === WebSocket.OPEN) {"
+    "      ws.send(msg);"
+    "      output.textContent += '> ' + msg + '\\n';"
+    "    } else {"
+    "      alert('WebSocket未连接');"
+    "    }"
+    "    return false;"
+    "  };"
+
+    "  var openBtn = document.getElementById('openUploadBtn');" /* 上传按钮 */
+    "  var modal = document.getElementById('uploadModal');"     /* 上传模态框 */
+    "  var closeBtn = document.getElementById('closeModal');"   /* 关闭按钮 */
+    "  var uploadForm = document.getElementById('uploadForm');"
+    "  var uploadStatus = document.getElementById('uploadStatus');"
+    "  var uploadProgress = document.getElementById('uploadProgress');"
+    "  var uploadBtn = document.getElementById('uploadBtn');"
+
+    "  openBtn.onclick = function() {" /* 打开上传模态框 */
+    "    modal.style.display = 'block';"
+    "    uploadStatus.textContent = '';"
+    "    uploadProgress.style.display = 'none';"
+    "    uploadProgress.value = 0;"
+    "    uploadForm.reset();"
+    "  };"
+
+    "  closeBtn.onclick = function() {" /* 关闭上传模态框 */
+    "    modal.style.display = 'none';"
+    "  };"
+
+    "  window.onclick = function(event) {" /* 点击模态框外部关闭 */
+    "    if (event.target === modal) {"
+    "      modal.style.display = 'none';"
+    "    }"
+    "  };"
+
+    "  uploadBtn.onclick = async function() {" /* 分块上传按钮点击事件 */
+    "    var fileInput = document.getElementById('fileInput');"
+    "    var saveDir = document.getElementById('saveDir').value.trim();"
+
+    "    if (!fileInput.files.length) {"
+    "      alert('请选择文件');"
+    "      return;"
+    "    }"
+    "    if (!saveDir) {"
+    "      alert('请输入保存目录');"
+    "      return;"
+    "    }"
+
+    "    var file = fileInput.files[0];"
+    "    var chunkSize = 1024 * 1024;" /* 1MB分块 */
+    "    var totalChunks = Math.ceil(file.size / chunkSize);"
+    "    var uploadId = Date.now() + '-' + Math.random().toString(36).substr(2, 9);"
+
+    "    uploadStatus.style.color = '#5a3e36';"
+    "    uploadStatus.textContent = '上传中...';"
+    "    uploadProgress.style.display = 'block';"
+    "    uploadProgress.value = 0;"
+
+    "    for (var chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {" /* 逐块上传 */
+    "      var start = chunkIndex * chunkSize;"
+    "      var end = Math.min(start + chunkSize, file.size);"
+    "      var chunk = file.slice(start, end);"
+    "      var formData = new FormData();"
+    "      formData.append('saveDir', saveDir);"
+    "      formData.append('fileName', file.name);"
+    "      formData.append('uploadId', uploadId);"
+    "      formData.append('chunkIndex', chunkIndex);"
+    "      formData.append('totalChunks', totalChunks);"
+    "      formData.append('chunk', chunk);"
+
+    "      try {"
+    "        var response = await fetch('/upload', {"
+    "          method: 'POST',"
+    "          body: formData"
+    "        });"
+    "        if (!response.ok) {"
+    "          throw new Error('服务器返回错误: ' + response.status);"
+    "        }"
+    "        var text = await response.text();"
+    "        if (text.indexOf('错误') !== -1 || text.indexOf('失败') !== -1) {"
+    "          throw new Error(text);"
+    "        }"
+    "      } catch (err) {"
+    "        uploadStatus.style.color = 'red';"
+    "        uploadStatus.textContent = '上传失败: ' + err.message;"
+    "        uploadProgress.style.display = 'none';"
+    "        return;"
+    "      }"
+    "      uploadProgress.value = ((chunkIndex + 1) / totalChunks) * 100;" /* 更新进度条 */
+    "    }"
+
+    "    uploadStatus.style.color = 'green';"
+    "    uploadStatus.textContent = '上传成功！';"
+    "    uploadProgress.style.display = 'none';"
+    "  };"
+    "});"
+    "</script>" /* JavaScript脚本结束 */
+    "</body>"   /* 页面主体结束 */
+    "</html>";  /* HTML结束 */
+
+// 判断目录是否存在，返回0表示存在，-1表示不存在或错误
+static int mg_fs_dir_exists(struct mg_fs *fs, const char *path)
+{
+    size_t size;
+    time_t mtime;
+    int r = fs->st(path, &size, &mtime);
+    if (r < 0)
+        return -1;
+    if ((r & MG_FS_DIR) != 0)
+        return 0;
+    return -1;
 }
 
-// 解析命令和参数，支持转义分号
-void parse_cmd_param_escaped(char *msg, char **cmd, char **param) {
-    char *p = msg;
-    char *sep = NULL;
-    int escaped = 0;
+// 如果目录不存在则创建目录，成功返回0，失败返回-1
+static int mg_fs_mkdir_if_not_exists(struct mg_fs *fs, const char *path)
+{
+    if (mg_fs_dir_exists(fs, path) == 0)
+    {
+        return 0; // 目录已存在
+    }
+    if (fs->mkd == NULL)
+    {
+        return -1; // 不支持创建目录
+    }
+    if (fs->mkd(path))
+    {
+        return 0; // 创建成功
+    }
+    return -1; // 创建失败
+}
 
-    while (*p) {
-        if (!escaped && *p == '\\') {
-            escaped = 1;
-        } else {
-            if (!escaped && *p == ';') {
-                sep = p;
-                break;
-            }
-            escaped = 0;
-        }
-        p++;
+// 保存文件到指定路径，成功返回0，失败返回-1
+static int mg_fs_save_file(struct mg_fs *fs, const char *filepath, const char *data, size_t len)
+{
+    struct mg_fd *fd = mg_fs_open(fs, filepath, MG_FS_WRITE);
+    if (fd == NULL)
+    {
+        return -1; // 打开文件失败
+    }
+    size_t written = fs->wr(fd->fd, data, len);
+    mg_fs_close(fd);
+    return (written == len) ? 0 : -1; // 判断写入是否完整
+}
+
+// 校验文件名是否合法，禁止包含路径分隔符和 ".."
+static int is_valid_filename(const char *filename)
+{
+    // 禁止包含路径分隔符和 ".."
+    if (strstr(filename, "..") != NULL)
+        return 0;
+    if (strchr(filename, '/') != NULL)
+        return 0;
+    if (strchr(filename, '\\') != NULL)
+        return 0;
+    return 1;
+}
+
+static int mg_vcmp(struct mg_str *a, const char *b)
+{
+    size_t len = strlen(b);
+    if (a->len != len)
+        return -1;
+    return memcmp(a->buf, b, len);
+}
+
+static int mg_fs_append_file(struct mg_fs *fs, const char *filepath, const char *data, size_t len)
+{
+    // 先打开文件，读取已有内容长度
+    size_t size;
+    time_t mtime;
+    int r = fs->st(filepath, &size, &mtime);
+    if (r <= 0)
+    {
+        // 文件不存在，直接写入新文件
+        return mg_fs_save_file(fs, filepath, data, len);
     }
 
-    if (sep) {
-        *sep = '\0';
-        *cmd = trim(msg);
+    // 文件存在，打开文件写入（覆盖）
+    struct mg_fd *fd = mg_fs_open(fs, filepath, MG_FS_WRITE);
+    if (fd == NULL)
+    {
+        return -1;
+    }
 
-        // 参数部分处理转义字符，将 \; 替换为 ;
-        char *src = sep + 1;
-        char *dst = src;
-        while (*src) {
-            if (*src == '\\' && *(src + 1) == ';') {
-                *dst++ = ';';
-                src += 2;
-            } else {
-                *dst++ = *src++;
-            }
-        }
-        *dst = '\0';
+    // 先读取已有内容
+    char *buf = malloc(size + len);
+    if (!buf)
+    {
+        mg_fs_close(fd);
+        return -1;
+    }
 
-        *param = trim(sep + 1);
-        if (**param == '\0') {
-            *param = NULL;
+    size_t read_len = fs->rd(fd->fd, buf, size);
+    if (read_len != size)
+    {
+        free(buf);
+        mg_fs_close(fd);
+        return -1;
+    }
+
+    // 追加新数据
+    memcpy(buf + size, data, len);
+
+    // 重新写入全部数据
+    fs->wr(fd->fd, buf, size + len);
+
+    free(buf);
+    mg_fs_close(fd);
+
+    return 0;
+}
+
+// 处理文件上传请求
+static void handle_upload(struct mg_connection *c, struct mg_http_message *hm)
+{
+    chdir("D:\\workspace\\vscode_workspace\\vscode_normalcode\\");
+    struct mg_fs *fs = &mg_fs_posix;
+
+    // 解析multipart表单，提取字段
+    struct mg_http_part part;
+    size_t off = 0;
+
+    char saveDir[256] = {0};
+    char fileName[256] = {0};
+    char uploadId[256] = {0};
+    int chunkIndex = -1;
+    int totalChunks = -1;
+    const char *chunkData = NULL;
+    size_t chunkLen = 0;
+
+    // 遍历所有part
+    while ((off = mg_http_next_multipart(hm->body, off, &part)) != 0)
+    {
+        if (mg_vcmp(&part.name, "saveDir") == 0)
+        {
+            snprintf(saveDir, sizeof(saveDir), "%.*s", (int)part.body.len, part.body.buf);
         }
-    } else {
-        *cmd = trim(msg);
-        *param = NULL;
+        else if (mg_vcmp(&part.name, "fileName") == 0)
+        {
+            snprintf(fileName, sizeof(fileName), "%.*s", (int)part.body.len, part.body.buf);
+        }
+        else if (mg_vcmp(&part.name, "uploadId") == 0)
+        {
+            snprintf(uploadId, sizeof(uploadId), "%.*s", (int)part.body.len, part.body.buf);
+        }
+        else if (mg_vcmp(&part.name, "chunkIndex") == 0)
+        {
+            char tmp[32] = {0};
+            snprintf(tmp, sizeof(tmp), "%.*s", (int)part.body.len, part.body.buf);
+            chunkIndex = atoi(tmp);
+        }
+        else if (mg_vcmp(&part.name, "totalChunks") == 0)
+        {
+            char tmp[32] = {0};
+            snprintf(tmp, sizeof(tmp), "%.*s", (int)part.body.len, part.body.buf);
+            totalChunks = atoi(tmp);
+        }
+        else if (mg_vcmp(&part.name, "chunk") == 0)
+        {
+            chunkData = part.body.buf;
+            chunkLen = part.body.len;
+        }
+    }
+
+    if (saveDir[0] == 0 || fileName[0] == 0 || uploadId[0] == 0 || chunkIndex < 0 || totalChunks < 0 || chunkData == NULL)
+    {
+        mg_http_reply(c, 400, "", "上传参数不完整\n");
+        return;
+    }
+
+    // 校验文件名
+    if (!is_valid_filename(fileName))
+    {
+        mg_http_reply(c, 400, "", "非法文件名\n");
+        return;
+    }
+
+    // 创建保存目录
+    if (mg_fs_mkdir_if_not_exists(fs, saveDir) != 0)
+    {
+        mg_http_reply(c, 500, "", "无法创建保存目录\n");
+        return;
+    }
+
+    // 临时文件名，避免多个上传冲突
+    char tmpFilePath[512];
+    snprintf(tmpFilePath, sizeof(tmpFilePath), "%s/%s_%s.tmp", saveDir, uploadId, fileName);
+
+    // 以追加方式打开临时文件
+    if (mg_fs_append_file(fs, tmpFilePath, chunkData, chunkLen) != 0)
+    {
+        mg_http_reply(c, 500, "", "写入文件失败\n");
+        return;
+    }
+
+    // 如果是最后一个块，重命名临时文件为正式文件名
+    if (chunkIndex == totalChunks - 1)
+    {
+        char finalFilePath[512];
+        snprintf(finalFilePath, sizeof(finalFilePath), "%s/%s", saveDir, fileName);
+
+        // 删除已有文件（如果存在）
+        remove(finalFilePath);
+
+        if (rename(tmpFilePath, finalFilePath) != 0)
+        {
+            mg_http_reply(c, 500, "", "重命名文件失败\n");
+            return;
+        }
+
+        mg_http_reply(c, 200, "", "上传成功！\n");
+    }
+    else
+    {
+        // 还未完成所有块，返回继续上传
+        mg_http_reply(c, 200, "", "块上传成功\n");
     }
 }
 
-// Connection event handler function
+// 连接事件处理函数，处理HTTP请求、WebSocket连接及消息等
 static void fn(struct mg_connection *c, int ev, void *ev_data)
 {
     switch (ev)
     {
     case MG_EV_HTTP_MSG:
-    { // New HTTP request received
-        // struct mg_http_message *hm = (struct mg_http_message *)ev_data; // Parsed HTTP request
-        // if (mg_match(hm->uri, mg_str("/api/hello"), NULL))
-        // {
-        //     // REST API call
-        //     char response[4096];
-        //     char response1[4096];
-        //     int len = snprintf(response, sizeof(response), html_page_inputandview, strlen(css_style_inputandview), css_style_inputandview);
-        //     len = snprintf(response1, sizeof(response1), head_fmt, len, response);
-        //     // 发送完整响应
-        //     mg_send(c, response1, len);
-        //     // 发送完毕后关闭连接
-        //     c->is_draining = 1;
-        // }
-        // else
-        // {
-        //     struct mg_http_serve_opts opts = {.root_dir = "."}; // For all other URLs,
-        //     mg_http_serve_dir(c, hm, &opts);                    // Serve static files
-        // }
+    {
         struct mg_http_message *hm = (struct mg_http_message *)ev_data;
         if (mg_match(hm->uri, mg_str("/"), NULL))
         {
-            char response[4096];
-            char response1[4096];
+            // 访问根路径，返回HTML页面
+            char response[10240];
+            char response1[10240];
             int len = snprintf(response, sizeof(response), html_page_inputandview, strlen(css_style_inputandview), css_style_inputandview);
             len = snprintf(response1, sizeof(response1), head_fmt, len, response);
             mg_send(c, response1, len);
         }
         else if (mg_match(hm->uri, mg_str("/ws"), NULL))
         {
+            // WebSocket升级请求
             mg_ws_upgrade(c, hm, NULL); // 关键：升级为WebSocket连接
+        }
+        else if (mg_match(hm->uri, mg_str("/upload"), NULL))
+        {
+            // 只接受POST请求上传文件
+            if (0 == mg_strcmp(hm->method, mg_str("POST")))
+            {
+                handle_upload(c, hm);
+            }
+            else
+            {
+                mg_http_reply(c, 405, "", "Method Not Allowed\n");
+            }
         }
         else
         {
+            // 其他路径返回404
             mg_http_reply(c, 404, "", "Not Found\n");
         }
         break;
     }
     case MG_EV_WS_OPEN:
     {
-        // 保存WebSocket连接指针
+        // WebSocket连接建立，保存连接指针
         ws_conn = c;
         printf("WebSocket连接已建立\n");
         break;
     }
     case MG_EV_WS_MSG:
     {
-        // 可处理客户端消息，示例不做处理
+        // 收到WebSocket消息，处理客户端发送的命令
         struct mg_ws_message *wm = (struct mg_ws_message *)ev_data;
         // 申请缓冲区，拷贝消息并添加字符串结束符
         char *msg = malloc(wm->data.len + 1);
         if (msg == NULL)
         {
+            // 内存不足，发送错误消息
             const char *err = "服务器内存不足\n";
             struct mg_str err_str = {(char *)err, strlen(err)};
             mg_ws_send(c, err_str.buf, err_str.len, WEBSOCKET_OP_TEXT);
@@ -406,10 +646,14 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
 
         printf("收到客户端命令: %s\n", msg);
 
+        // TODO: 这里可以添加命令执行逻辑，并通过WebSocket发送结果给客户端
+
+        free(msg);
+        break;
     }
     case MG_EV_CLOSE:
     {
-        // 连接关闭时清理指针
+        // 连接关闭时清理WebSocket连接指针
         if (ws_conn == c)
         {
             ws_conn = NULL;
@@ -420,7 +664,7 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
     }
 }
 
-// 定时器回调函数，每2秒调用一次
+// 定时器回调函数，每2秒调用一次，向客户端发送服务器当前时间
 static void timer_cb(void *arg)
 {
     (void)arg;
@@ -434,17 +678,18 @@ static void timer_cb(void *arg)
     }
 }
 
-struct mg_connection *pcConn_send;
+struct mg_connection *pcConn_send; // 未使用的连接指针变量，保留
+
 int main()
 {
-    struct mg_mgr mgr;                                     // Mongoose event manager. Holds all connections
-    mg_mgr_init(&mgr);                                     // Initialise event manager
-    mg_http_listen(&mgr, "http://0.0.0.0:8000", fn, NULL); // Setup listener
-    // 初始化定时器，2秒周期
+    struct mg_mgr mgr;                                     // Mongoose事件管理器，管理所有连接
+    mg_mgr_init(&mgr);                                     // 初始化事件管理器
+    mg_http_listen(&mgr, "http://0.0.0.0:8000", fn, NULL); // 监听0.0.0.0:8000端口，绑定事件处理函数fn
+    // 初始化定时器，周期2秒，重复调用timer_cb函数
     mg_timer_add(&mgr, 2000, MG_TIMER_REPEAT, timer_cb, NULL);
     for (;;)
     {
-        mg_mgr_poll(&mgr, 1000); // Infinite event loop
+        mg_mgr_poll(&mgr, 1000); // 事件循环，等待并处理事件，超时1000ms
     }
     return 0;
 }
