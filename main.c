@@ -38,7 +38,7 @@ const char *css_style_inputandview =
     "align-items: center;"
     "}"
     ".container {"
-    "max-width: 600px;"
+    "max-width: 900px;"
     "width: 100%;"
     "background: #e6dbff;"
     "padding: 30px 35px;"
@@ -46,6 +46,21 @@ const char *css_style_inputandview =
     "box-shadow: 0 8px 24px rgba(154, 127, 255, 0.3);"
     "border: 1px solid #b3a1ff;"
     "color: #5a3dbf;"
+    "display: flex;"
+    "flex-direction: row;"
+    "gap: 30px;"
+    "height: 800px;"
+    "box-sizing: border-box;"
+    "}"
+    ".left-panel {"
+    "flex: 0 0 40%;"
+    "display: flex;"
+    "flex-direction: column;"
+    "}"
+    ".right-panel {"
+    "flex: 1;"
+    "display: flex;"
+    "flex-direction: column;"
     "}"
     "input[type=text] {"
     "width: 100%;"
@@ -102,15 +117,15 @@ const char *css_style_inputandview =
     "box-shadow: 0 7px 20px rgba(245, 166, 76, 0.7);"
     "}"
     "pre#output {"
+    "flex: 1;"
     "background: #d9ccff;"
     "padding: 22px;"
     "border-radius: 16px;"
-    "height: 320px;"
     "overflow-y: auto;"
     "white-space: pre-wrap;"
     "word-wrap: break-word;"
     "font-size: 15px;"
-    "margin-top: 28px;"
+    "margin-top: 12px;"
     "color: #6b4fcf;"
     "box-shadow: inset 0 0 12px #b3a1ff;"
     "font-family: Consolas, monospace;"
@@ -176,7 +191,6 @@ const char *css_style_inputandview =
     "font-weight: 600;"
     "color: #5a3dbf;"
     "}"
-    /* 新增保存目录输入框样式 */
     "#uploadForm label[for=saveDir] {"
     "display: block;"
     "margin-top: 12px;"
@@ -204,32 +218,36 @@ const char *css_style_inputandview =
     "</style>";
 
 const char *html_page_inputandview =
-    "<!DOCTYPE html>"                                                          /* HTML文档类型声明 */
-    "<html lang=\"zh-CN\">"                                                    /* HTML根元素，语言为中文 */
-    "<head>"                                                                   /* 头部开始 */
-    "<meta charset=\"UTF-8\">"                                                 /* 字符编码声明 */
-    "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">" /* 响应式视口设置 */
-    "<title>命令执行服务器</title>"                                            /* 页面标题 */
-    "%.*s"                                                                     /* CSS插入位置 */
-    "</head>"                                                                  /* 头部结束 */
-    "<body>"                                                                   /* 页面主体开始 */
-    "<div class=\"container\">"                                                /* 主容器，包含命令输入表单和输出显示区域 */
-    "  <h2>请输入命令和参数</h2>"
-    "  <form id=\"cmdForm\">" /* 命令输入表单 */
-    "    命令: <input type=\"text\" id=\"command\" placeholder=\"例如: dir\" required><br>"
-    "    参数: <input type=\"text\" id=\"param\" placeholder=\"例如: C:\\\\\"><br>"
-    "    <div class=\"button-row\">"
-    "      <input type=\"submit\" value=\"执行\">"
-    "      <button id=\"openUploadBtn\" type=\"button\">上传文件</button>"
-    "    </div>"
-    "  </form>"
-    "  <h2>命令执行输出</h2>"
-    "  <pre id=\"output\"></pre>"
-    "</div>" /* 主容器结束 */
+    "<!DOCTYPE html>"
+    "<html lang=\"zh-CN\">"
+    "<head>"
+    "<meta charset=\"UTF-8\">"
+    "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+    "<title>命令执行服务器</title>"
+    "%.*s"
+    "</head>"
+    "<body>"
+    "<div class=\"container\">"
+    "  <div class=\"left-panel\">"
+    "    <h2>请输入命令和参数</h2>"
+    "    <form id=\"cmdForm\">"
+    "      命令: <input type=\"text\" id=\"command\" placeholder=\"例如: dir\" required><br>"
+    "      参数: <input type=\"text\" id=\"param\" placeholder=\"例如: C:\\\\\"><br>"
+    "      <div class=\"button-row\">"
+    "        <input type=\"submit\" value=\"执行\">"
+    "        <button id=\"openUploadBtn\" type=\"button\">上传文件</button>"
+    "      </div>"
+    "    </form>"
+    "  </div>"
+    "  <div class=\"right-panel\">"
+    "    <h2>命令执行输出</h2>"
+    "    <pre id=\"output\"></pre>"
+    "  </div>"
+    "</div>"
 
-    "<div id=\"uploadModal\" class=\"modal\">" /* 文件上传模态框，默认隐藏 */
+    "<div id=\"uploadModal\" class=\"modal\">"
     "  <div class=\"modal-content\">"
-    "    <span id=\"closeModal\" class=\"close\">&times;</span>" /* 关闭按钮 */
+    "    <span id=\"closeModal\" class=\"close\">&times;</span>"
     "    <h2>上传文件到服务器（分块上传）</h2>"
     "    <form id=\"uploadForm\">"
     "      <label for=\"saveDir\">保存目录:</label>"
@@ -237,25 +255,25 @@ const char *html_page_inputandview =
     "      <input type=\"file\" id=\"fileInput\" name=\"file\" required>"
     "      <input type=\"button\" id=\"uploadBtn\" value=\"开始上传\">"
     "    </form>"
-    "    <div id=\"uploadStatus\"></div>"                                                                                          /* 上传状态显示 */
-    "    <progress id=\"uploadProgress\" value=\"0\" max=\"100\" style=\"width:100%; margin-top:10px; display:none;\"></progress>" /* 上传进度条，默认隐藏 */
+    "    <div id=\"uploadStatus\"></div>"
+    "    <progress id=\"uploadProgress\" value=\"0\" max=\"100\" style=\"width:100%; margin-top:10px; display:none;\"></progress>"
     "  </div>"
-    "</div>" /* 文件上传模态框结束 */
+    "</div>"
 
-    "<script>"                                                   /* JavaScript脚本开始 */
-    "document.addEventListener('DOMContentLoaded', function() {" /* 页面加载完成事件 */
-    "  var ws = new WebSocket('ws://' + location.host + '/ws');" /* 建立WebSocket连接 */
-    "  var output = document.getElementById('output');"          /* 获取输出区域 */
+    "<script>"
+    "document.addEventListener('DOMContentLoaded', function() {"
+    "  var ws = new WebSocket('ws://' + location.host + '/ws');"
+    "  var output = document.getElementById('output');"
 
-    "  ws.onmessage = function(evt) {" /* 接收WebSocket消息 */
+    "  ws.onmessage = function(evt) {"
     "    output.textContent += evt.data + '\\n';"
-    "    output.scrollTop = output.scrollHeight;" /* 滚动到底部 */
+    "    output.scrollTop = output.scrollHeight;"
     "  };"
 
-    "  ws.onopen = function() { console.log('WebSocket连接已建立'); };"  /* 连接打开 */
-    "  ws.onclose = function() { console.log('WebSocket连接已关闭'); };" /* 连接关闭 */
+    "  ws.onopen = function() { console.log('WebSocket连接已建立'); };"
+    "  ws.onclose = function() { console.log('WebSocket连接已关闭'); };"
 
-    "  document.getElementById('cmdForm').onsubmit = function(e) {" /* 命令表单提交事件 */
+    "  document.getElementById('cmdForm').onsubmit = function(e) {"
     "    e.preventDefault();"
     "    var cmd = document.getElementById('command').value.trim();"
     "    var param = document.getElementById('param').value.trim();"
@@ -269,15 +287,15 @@ const char *html_page_inputandview =
     "    return false;"
     "  };"
 
-    "  var openBtn = document.getElementById('openUploadBtn');" /* 上传按钮 */
-    "  var modal = document.getElementById('uploadModal');"     /* 上传模态框 */
-    "  var closeBtn = document.getElementById('closeModal');"   /* 关闭按钮 */
+    "  var openBtn = document.getElementById('openUploadBtn');"
+    "  var modal = document.getElementById('uploadModal');"
+    "  var closeBtn = document.getElementById('closeModal');"
     "  var uploadForm = document.getElementById('uploadForm');"
     "  var uploadStatus = document.getElementById('uploadStatus');"
     "  var uploadProgress = document.getElementById('uploadProgress');"
     "  var uploadBtn = document.getElementById('uploadBtn');"
 
-    "  openBtn.onclick = function() {" /* 打开上传模态框 */
+    "  openBtn.onclick = function() {"
     "    modal.style.display = 'block';"
     "    uploadStatus.textContent = '';"
     "    uploadProgress.style.display = 'none';"
@@ -285,17 +303,17 @@ const char *html_page_inputandview =
     "    uploadForm.reset();"
     "  };"
 
-    "  closeBtn.onclick = function() {" /* 关闭上传模态框 */
+    "  closeBtn.onclick = function() {"
     "    modal.style.display = 'none';"
     "  };"
 
-    "  window.onclick = function(event) {" /* 点击模态框外部关闭 */
+    "  window.onclick = function(event) {"
     "    if (event.target === modal) {"
     "      modal.style.display = 'none';"
     "    }"
     "  };"
 
-    "  uploadBtn.onclick = async function() {" /* 分块上传按钮点击事件 */
+    "  uploadBtn.onclick = async function() {"
     "    var fileInput = document.getElementById('fileInput');"
     "    var saveDir = document.getElementById('saveDir').value.trim();"
 
@@ -309,7 +327,7 @@ const char *html_page_inputandview =
     "    }"
 
     "    var file = fileInput.files[0];"
-    "    var chunkSize = 1024 * 1024;" /* 1MB分块 */
+    "    var chunkSize = 1024 * 1024;"
     "    var totalChunks = Math.ceil(file.size / chunkSize);"
     "    var uploadId = Date.now() + '-' + Math.random().toString(36).substr(2, 9);"
 
@@ -318,7 +336,7 @@ const char *html_page_inputandview =
     "    uploadProgress.style.display = 'block';"
     "    uploadProgress.value = 0;"
 
-    "    for (var chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {" /* 逐块上传 */
+    "    for (var chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {"
     "      var start = chunkIndex * chunkSize;"
     "      var end = Math.min(start + chunkSize, file.size);"
     "      var chunk = file.slice(start, end);"
@@ -348,7 +366,7 @@ const char *html_page_inputandview =
     "        uploadProgress.style.display = 'none';"
     "        return;"
     "      }"
-    "      uploadProgress.value = ((chunkIndex + 1) / totalChunks) * 100;" /* 更新进度条 */
+    "      uploadProgress.value = ((chunkIndex + 1) / totalChunks) * 100;"
     "    }"
 
     "    uploadStatus.style.color = 'green';"
@@ -356,9 +374,9 @@ const char *html_page_inputandview =
     "    uploadProgress.style.display = 'none';"
     "  };"
     "});"
-    "</script>" /* JavaScript脚本结束 */
-    "</body>"   /* 页面主体结束 */
-    "</html>";  /* HTML结束 */
+    "</script>"
+    "</body>"
+    "</html>";
 
 // 判断目录是否存在，返回0表示存在，-1表示不存在或错误
 static int mg_fs_dir_exists(struct mg_fs *fs, const char *path)
@@ -549,7 +567,7 @@ static void handle_upload(struct mg_connection *c, struct mg_http_message *hm)
     snprintf(tmpFilePath, sizeof(tmpFilePath), "%s/%s_%s.tmp", saveDir, uploadId, fileName);
 
     // 以追加方式打开临时文件
-    if (mg_fs_append_file(fs, tmpFilePath, chunkData, chunkLen) != 0)
+    if (mg_fs_save_file(fs, tmpFilePath, chunkData, chunkLen))
     {
         mg_http_reply(c, 500, "", "写入文件失败\n");
         return;
@@ -562,9 +580,9 @@ static void handle_upload(struct mg_connection *c, struct mg_http_message *hm)
         snprintf(finalFilePath, sizeof(finalFilePath), "%s/%s", saveDir, fileName);
 
         // 删除已有文件（如果存在）
-        remove(finalFilePath);
+        fs->rm(finalFilePath);
 
-        if (rename(tmpFilePath, finalFilePath) != 0)
+        if (!fs->mv(tmpFilePath, finalFilePath))
         {
             mg_http_reply(c, 500, "", "重命名文件失败\n");
             return;
@@ -682,6 +700,7 @@ struct mg_connection *pcConn_send; // 未使用的连接指针变量，保留
 
 int main()
 {
+    struct mg_fs *fs = &mg_fs_posix;
     struct mg_mgr mgr;                                     // Mongoose事件管理器，管理所有连接
     mg_mgr_init(&mgr);                                     // 初始化事件管理器
     mg_http_listen(&mgr, "http://0.0.0.0:8000", fn, NULL); // 监听0.0.0.0:8000端口，绑定事件处理函数fn
