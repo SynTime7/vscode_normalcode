@@ -81,40 +81,41 @@ const char *css_style_inputandview =
     "box-shadow: 0 0 10px #7f66ff;"
     "}"
     ".button-row {"
-    "display: flex;"
-    "gap: 12px;"
-    "margin-top: 12px;"
-    "justify-content: flex-start;"
+    "display: flex;"               /* 使用Flexbox布局，使子元素（按钮）水平排列 */
+    "flex-wrap: wrap;"             /* 允许换行 */
+    "gap: 12px;"                   /* 子元素之间水平间距为12像素 */
+    "margin-top: 12px;"            /* 容器顶部外边距12像素，增加与上方元素的间距 */
+    "justify-content: flex-start;" /* 子元素在主轴（水平）方向左对齐 */
     "}"
     ".button-row input[type=submit],"
     ".button-row button {"
-    "flex: none;"
-    "padding: 14px 28px;"
-    "border-radius: 10px;"
-    "font-weight: 700;"
-    "font-size: 16px;"
-    "cursor: pointer;"
-    "box-shadow: 0 5px 15px rgba(127, 102, 255, 0.5);"
-    "transition: background-color 0.3s ease, box-shadow 0.3s ease;"
+    "flex: none;"                                                   /* 子元素不伸缩，保持自身大小 */
+    "padding: 14px 28px;"                                           /* 内边距，上下14px，左右28px，按钮大小适中 */
+    "border-radius: 10px;"                                          /* 圆角边框，半径10像素，按钮更圆润 */
+    "font-weight: 700;"                                             /* 字体加粗，突出按钮文字 */
+    "font-size: 16px;"                                              /* 字体大小16像素，易读 */
+    "cursor: pointer;"                                              /* 鼠标悬停时显示手型，提示可点击 */
+    "box-shadow: 0 5px 15px rgba(127, 102, 255, 0.5);"              /* 按钮阴影，增加立体感 */
+    "transition: background-color 0.3s ease, box-shadow 0.3s ease;" /* 背景色和阴影变化时平滑过渡，时长0.3秒 */
     "}"
     ".button-row input[type=submit] {"
-    "background-color: #7f66ff;"
-    "color: #fff;"
-    "border: none;"
+    "background-color: #7f66ff;" /* 提交按钮背景色为紫色 */
+    "color: #fff;"               /* 文字颜色为白色 */
+    "border: none;"              /* 无边框 */
     "}"
     ".button-row input[type=submit]:hover {"
-    "background-color: #a18cff;"
-    "box-shadow: 0 7px 20px rgba(161, 140, 255, 0.7);"
+    "background-color: #a18cff;"                       /* 鼠标悬停时背景色变为浅紫色 */
+    "box-shadow: 0 7px 20px rgba(161, 140, 255, 0.7);" /* 阴影加深且范围扩大，突出悬停效果 */
     "}"
     ".button-row button {"
-    "background-color: #f28c28;"
+    "background-color: #7f66ff;" /* 紫色背景 */
     "color: #fff;"
     "border: none;"
-    "box-shadow: 0 5px 15px rgba(242, 140, 40, 0.5);"
+    "box-shadow: 0 5px 15px rgba(127, 102, 255, 0.5);" /* 紫色阴影 */
     "}"
     ".button-row button:hover {"
-    "background-color: #f5a64c;"
-    "box-shadow: 0 7px 20px rgba(245, 166, 76, 0.7);"
+    "background-color: #a18cff;"                       /* 浅紫色悬停 */
+    "box-shadow: 0 7px 20px rgba(161, 140, 255, 0.7);" /* 浅紫色阴影 */
     "}"
     "pre#output {"
     "flex: 1;"
@@ -237,6 +238,7 @@ const char *html_page_inputandview =
     "        <input type=\"submit\" value=\"执行\">"
     "        <button id=\"openUploadBtn\" type=\"button\">上传文件</button>"
     "        <button id=\"openFtpBtn\" type=\"button\">FTP</button>"
+    "        <button id=\"openFtpBtn1\" type=\"button1\">FTP</button>"
     "      </div>"
     "    </form>"
     "  </div>"
