@@ -236,6 +236,7 @@ const char *html_page_inputandview =
     "      <div class=\"button-row\">"
     "        <input type=\"submit\" value=\"执行\">"
     "        <button id=\"openUploadBtn\" type=\"button\">上传文件</button>"
+    "        <button id=\"openFtpBtn\" type=\"button\">FTP</button>"
     "      </div>"
     "    </form>"
     "  </div>"
@@ -288,6 +289,7 @@ const char *html_page_inputandview =
     "  };"
 
     "  var openBtn = document.getElementById('openUploadBtn');"
+    "  var openFtpBtn = document.getElementById('openFtpBtn');"
     "  var modal = document.getElementById('uploadModal');"
     "  var closeBtn = document.getElementById('closeModal');"
     "  var uploadForm = document.getElementById('uploadForm');"
@@ -301,6 +303,10 @@ const char *html_page_inputandview =
     "    uploadProgress.style.display = 'none';"
     "    uploadProgress.value = 0;"
     "    uploadForm.reset();"
+    "  };"
+
+    "  openFtpBtn.onclick = function() {"
+    "  window.open('/ftp', '_blank');"
     "  };"
 
     "  closeBtn.onclick = function() {"
@@ -375,6 +381,25 @@ const char *html_page_inputandview =
     "  };"
     "});"
     "</script>"
+    "</body>"
+    "</html>";
+
+// 1. 新增FTP页面HTML
+const char *html_page_ftp =
+    "<!DOCTYPE html>"
+    "<html lang=\"zh-CN\">"
+    "<head>"
+    "<meta charset=\"UTF-8\">"
+    "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+    "<title>简单FTP页面</title>"
+    "<style>"
+    "body { font-family: Arial, sans-serif; padding: 20px; background: #f0f0f0; }"
+    "h1 { color: #5a3dbf; }"
+    "</style>"
+    "</head>"
+    "<body>"
+    "<h1>欢迎使用简单FTP页面</h1>"
+    "<p>这里可以放置FTP相关功能或说明。</p>"
     "</body>"
     "</html>";
 
@@ -630,6 +655,12 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
             {
                 mg_http_reply(c, 405, "", "Method Not Allowed\n");
             }
+        }
+        else if (mg_match(hm->uri, mg_str("/ftp"), NULL))
+        {
+            char response[4096];
+            int len = snprintf(response, sizeof(response), head_fmt, strlen(html_page_ftp), html_page_ftp);
+            mg_send(c, response, len);
         }
         else
         {
