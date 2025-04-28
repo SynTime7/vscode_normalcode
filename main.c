@@ -6,6 +6,9 @@
 #include <ctype.h> // 用于isxdigit函数
 #include "top.h"
 #include "mongoose.h"
+#include <time.h>
+#include <stdio.h>
+
 #pragma comment(lib, "ws2_32.lib")
 
 static struct mg_connection *ws_conn = NULL; // 保存WebSocket连接指针
@@ -26,42 +29,49 @@ const char *head_fmt =
 // 页面CSS样式，定义了页面整体风格和控件样式
 const char *css_style_inputandview =
     "<style>"
+    /* 页面主体样式 */
     "body {"
-    "background: linear-gradient(135deg, #9a7fff, #bfa0ff);"
-    "color: #5a3dbf;"
-    "font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;"
+    "background: linear-gradient(135deg, #9a7fff, #bfa0ff);"        /* 渐变背景色 */
+    "color: #5a3dbf;"                                               /* 文字颜色 */
+    "font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;" /* 字体 */
     "padding: 30px;"
     "margin: 0;"
-    "height: 100vh;"
+    "height: 100vh;" /* 视口高度 */
     "display: flex;"
     "justify-content: center;"
     "align-items: center;"
     "}"
+    /* 容器样式 */
     ".container {"
-    "max-width: 900px;"
+    "max-width: 1300px;"
     "width: 100%;"
-    "background: #e6dbff;"
+    "background: #e6dbff;" /* 容器背景色 */
     "padding: 30px 35px;"
-    "border-radius: 16px;"
-    "box-shadow: 0 8px 24px rgba(154, 127, 255, 0.3);"
-    "border: 1px solid #b3a1ff;"
+    "border-radius: 16px;"                             /* 圆角 */
+    "box-shadow: 0 8px 24px rgba(154, 127, 255, 0.3);" /* 阴影 */
+    "border: 1px solid #b3a1ff;"                       /* 边框 */
     "color: #5a3dbf;"
     "display: flex;"
     "flex-direction: row;"
-    "gap: 30px;"
+    "gap: 30px;" /* 子元素间距 */
     "height: 800px;"
     "box-sizing: border-box;"
+    "min-width: 0;" /* 防止溢出 */
     "}"
+    /* 左侧面板 */
     ".left-panel {"
-    "flex: 0 0 40%;"
+    "flex: 0 0 40%;" /* 固定宽度40% */
     "display: flex;"
     "flex-direction: column;"
     "}"
+    /* 右侧面板 */
     ".right-panel {"
-    "flex: 1;"
+    "flex: 1;" /* 剩余空间 */
     "display: flex;"
     "flex-direction: column;"
+    "min-width: 0;" /* 允许缩小 */
     "}"
+    /* 文本输入框 */
     "input[type=text] {"
     "width: 100%;"
     "padding: 14px 18px;"
@@ -74,63 +84,76 @@ const char *css_style_inputandview =
     "font-size: 16px;"
     "transition: border-color 0.3s ease, background-color 0.3s ease;"
     "}"
+    /* 输入框聚焦样式 */
     "input[type=text]:focus {"
     "outline: none;"
     "border-color: #7f66ff;"
     "background-color: #d9ccff;"
     "box-shadow: 0 0 10px #7f66ff;"
     "}"
+    /* 按钮行容器 */
     ".button-row {"
-    "display: flex;"               /* 使用Flexbox布局，使子元素（按钮）水平排列 */
+    "display: flex;"               /* 水平排列 */
     "flex-wrap: wrap;"             /* 允许换行 */
-    "gap: 12px;"                   /* 子元素之间水平间距为12像素 */
-    "margin-top: 12px;"            /* 容器顶部外边距12像素，增加与上方元素的间距 */
-    "justify-content: flex-start;" /* 子元素在主轴（水平）方向左对齐 */
+    "gap: 12px;"                   /* 按钮间距 */
+    "margin-top: 12px;"            /* 顶部间距 */
+    "justify-content: flex-start;" /* 左对齐 */
     "}"
+    /* 按钮和提交按钮通用样式 */
     ".button-row input[type=submit],"
     ".button-row button {"
-    "flex: none;"                                                   /* 子元素不伸缩，保持自身大小 */
-    "padding: 14px 28px;"                                           /* 内边距，上下14px，左右28px，按钮大小适中 */
-    "border-radius: 10px;"                                          /* 圆角边框，半径10像素，按钮更圆润 */
-    "font-weight: 700;"                                             /* 字体加粗，突出按钮文字 */
-    "font-size: 16px;"                                              /* 字体大小16像素，易读 */
-    "cursor: pointer;"                                              /* 鼠标悬停时显示手型，提示可点击 */
-    "box-shadow: 0 5px 15px rgba(127, 102, 255, 0.5);"              /* 按钮阴影，增加立体感 */
-    "transition: background-color 0.3s ease, box-shadow 0.3s ease;" /* 背景色和阴影变化时平滑过渡，时长0.3秒 */
+    "flex: none;"                                                   /* 固定大小 */
+    "padding: 14px 28px;"                                           /* 内边距 */
+    "border-radius: 10px;"                                          /* 圆角 */
+    "font-weight: 700;"                                             /* 加粗 */
+    "font-size: 16px;"                                              /* 字体大小 */
+    "cursor: pointer;"                                              /* 鼠标手型 */
+    "box-shadow: 0 5px 15px rgba(127, 102, 255, 0.5);"              /* 阴影 */
+    "transition: background-color 0.3s ease, box-shadow 0.3s ease;" /* 平滑过渡 */
     "}"
+    /* 提交按钮特有样式 */
     ".button-row input[type=submit] {"
-    "background-color: #7f66ff;" /* 提交按钮背景色为紫色 */
-    "color: #fff;"               /* 文字颜色为白色 */
+    "background-color: #7f66ff;" /* 紫色背景 */
+    "color: #fff;"               /* 白色文字 */
     "border: none;"              /* 无边框 */
     "}"
+    /* 提交按钮悬停 */
     ".button-row input[type=submit]:hover {"
-    "background-color: #a18cff;"                       /* 鼠标悬停时背景色变为浅紫色 */
-    "box-shadow: 0 7px 20px rgba(161, 140, 255, 0.7);" /* 阴影加深且范围扩大，突出悬停效果 */
+    "background-color: #a18cff;"                       /* 浅紫色 */
+    "box-shadow: 0 7px 20px rgba(161, 140, 255, 0.7);" /* 加深阴影 */
     "}"
+    /* 普通按钮特有样式 */
     ".button-row button {"
     "background-color: #7f66ff;" /* 紫色背景 */
     "color: #fff;"
     "border: none;"
-    "box-shadow: 0 5px 15px rgba(127, 102, 255, 0.5);" /* 紫色阴影 */
+    "box-shadow: 0 5px 15px rgba(127, 102, 255, 0.5);" /* 阴影 */
     "}"
+    /* 普通按钮悬停 */
     ".button-row button:hover {"
-    "background-color: #a18cff;"                       /* 浅紫色悬停 */
-    "box-shadow: 0 7px 20px rgba(161, 140, 255, 0.7);" /* 浅紫色阴影 */
+    "background-color: #a18cff;"                       /* 浅紫色 */
+    "box-shadow: 0 7px 20px rgba(161, 140, 255, 0.7);" /* 加深阴影 */
     "}"
+    /* 命令输出文本框 */
     "pre#output {"
-    "flex: 1;"
-    "background: #d9ccff;"
-    "padding: 22px;"
-    "border-radius: 16px;"
-    "overflow-y: auto;"
-    "white-space: pre-wrap;"
-    "word-wrap: break-word;"
-    "font-size: 15px;"
-    "margin-top: 12px;"
-    "color: #6b4fcf;"
-    "box-shadow: inset 0 0 12px #b3a1ff;"
-    "font-family: Consolas, monospace;"
+    "flex: 1;"                            /* 填满剩余空间 */
+    "background: #d9ccff;"                /* 背景色 */
+    "padding: 22px;"                      /* 内边距 */
+    "border-radius: 16px;"                /* 圆角 */
+    "overflow-y: auto;"                   /* 纵向滚动 */
+    "overflow-x: auto;"                   /* 横向滚动 */
+    "white-space: pre-wrap;"              /* 保留空白符，自动换行 */
+    "word-wrap: break-word;"              /* 长单词换行 */
+    "word-break: break-word;"             /* 兼容换行 */
+    "font-size: 15px;"                    /* 字体大小 */
+    "margin-top: 12px;"                   /* 顶部间距 */
+    "color: #6b4fcf;"                     /* 文字颜色 */
+    "box-shadow: inset 0 0 12px #b3a1ff;" /* 内阴影 */
+    "font-family: Consolas, monospace;"   /* 等宽字体 */
+    "min-width: 0;"                       /* 允许缩小 */
+    "max-width: 100%;"                    /* 最大宽度 */
     "}"
+    /* 模态框背景 */
     ".modal {"
     "display: none;"
     "position: fixed;"
@@ -138,8 +161,9 @@ const char *css_style_inputandview =
     "left: 0; top: 0;"
     "width: 100%; height: 100%;"
     "overflow: auto;"
-    "background-color: rgba(90, 61, 191, 0.25);"
+    "background-color: rgba(90, 61, 191, 0.25);" /* 半透明背景 */
     "}"
+    /* 模态框内容 */
     ".modal-content {"
     "background-color: #e6dbff;"
     "margin: 10% auto;"
@@ -151,6 +175,7 @@ const char *css_style_inputandview =
     "position: relative;"
     "box-sizing: border-box;"
     "}"
+    /* 关闭按钮 */
     ".close {"
     "color: #5a3dbf;"
     "position: absolute;"
@@ -160,15 +185,18 @@ const char *css_style_inputandview =
     "font-weight: bold;"
     "cursor: pointer;"
     "}"
+    /* 关闭按钮悬停 */
     ".close:hover {"
     "color: #7f66ff;"
     "}"
+    /* 上传表单文件输入 */
     "#uploadForm input[type=file] {"
     "width: 100%;"
     "padding: 6px 0;"
     "margin-top: 10px;"
     "cursor: pointer;"
     "}"
+    /* 上传表单提交按钮 */
     "#uploadForm input[type=submit] {"
     "margin-top: 20px;"
     "width: 100%;"
@@ -183,21 +211,25 @@ const char *css_style_inputandview =
     "transition: background-color 0.3s ease, box-shadow 0.3s ease;"
     "box-shadow: 0 5px 15px rgba(127, 102, 255, 0.5);"
     "}"
+    /* 上传按钮悬停 */
     "#uploadForm input[type=submit]:hover {"
     "background-color: #a18cff;"
     "box-shadow: 0 7px 20px rgba(161, 140, 255, 0.7);"
     "}"
+    /* 上传状态文本 */
     "#uploadStatus {"
     "margin-top: 15px;"
     "font-weight: 600;"
     "color: #5a3dbf;"
     "}"
+    /* 上传目录标签 */
     "#uploadForm label[for=saveDir] {"
     "display: block;"
     "margin-top: 12px;"
     "font-weight: 600;"
     "color: #5a3dbf;"
     "}"
+    /* 上传目录输入框 */
     "#uploadForm input#saveDir {"
     "width: 100%;"
     "padding: 10px 14px;"
@@ -210,6 +242,7 @@ const char *css_style_inputandview =
     "box-sizing: border-box;"
     "transition: border-color 0.3s ease, background-color 0.3s ease;"
     "}"
+    /* 上传目录输入框聚焦 */
     "#uploadForm input#saveDir:focus {"
     "outline: none;"
     "border-color: #7f66ff;"
@@ -238,7 +271,7 @@ const char *html_page_inputandview =
     "        <input type=\"submit\" value=\"执行\">"
     "        <button id=\"openUploadBtn\" type=\"button\">上传文件</button>"
     "        <button id=\"openFtpBtn\" type=\"button\">FTP</button>"
-    "        <button id=\"openFtpBtn1\" type=\"button1\">FTP</button>"
+    "        <button id=\"clearOutputBtn\" type=\"button\">Clear</button>"
     "      </div>"
     "    </form>"
     "  </div>"
@@ -310,6 +343,11 @@ const char *html_page_inputandview =
     "  openFtpBtn.onclick = function() {"
     "  window.open('/ftp', '_blank');"
     "  };"
+
+    "document.getElementById('clearOutputBtn').onclick = function() {"
+    "var output = document.getElementById('output');"
+    "output.textContent = '';"
+    "};"
 
     "  closeBtn.onclick = function() {"
     "    modal.style.display = 'none';"
@@ -624,6 +662,168 @@ static void handle_upload(struct mg_connection *c, struct mg_http_message *hm)
     }
 }
 
+static struct mg_str mg_http_get_mime(const char *path)
+{
+    const char *ext = strrchr(path, '.');
+    if (ext == NULL)
+    {
+        return mg_str("application/octet-stream");
+    }
+    ext++; // 跳过点号 '.'
+
+    if (strcasecmp(ext, "html") == 0 || strcasecmp(ext, "htm") == 0)
+    {
+        return mg_str("text/html");
+    }
+    else if (strcasecmp(ext, "css") == 0)
+    {
+        return mg_str("text/css");
+    }
+    else if (strcasecmp(ext, "js") == 0)
+    {
+        return mg_str("application/javascript");
+    }
+    else if (strcasecmp(ext, "json") == 0)
+    {
+        return mg_str("application/json");
+    }
+    else if (strcasecmp(ext, "png") == 0)
+    {
+        return mg_str("image/png");
+    }
+    else if (strcasecmp(ext, "jpg") == 0 || strcasecmp(ext, "jpeg") == 0)
+    {
+        return mg_str("image/jpeg");
+    }
+    else if (strcasecmp(ext, "gif") == 0)
+    {
+        return mg_str("image/gif");
+    }
+    else if (strcasecmp(ext, "svg") == 0)
+    {
+        return mg_str("image/svg+xml");
+    }
+    else if (strcasecmp(ext, "txt") == 0)
+    {
+        return mg_str("text/plain");
+    }
+    else if (strcasecmp(ext, "pdf") == 0)
+    {
+        return mg_str("application/pdf");
+    }
+    else if (strcasecmp(ext, "zip") == 0)
+    {
+        return mg_str("application/zip");
+    }
+    else
+    {
+        return mg_str("application/octet-stream");
+    }
+}
+
+static void handle_static_file(struct mg_connection *c, struct mg_http_message *hm)
+{
+    struct mg_fs *fs = &mg_fs_posix;
+    const char *base_dir = "frontend"; // 静态文件根目录
+
+    // 先把 hm->uri 复制到缓冲区，添加 \0
+    char uri_buf[512];
+    if (hm->uri.len >= sizeof(uri_buf))
+    {
+        mg_http_reply(c, 414, "", "URI Too Long\n");
+        return;
+    }
+    memcpy(uri_buf, hm->uri.buf, hm->uri.len);
+    uri_buf[hm->uri.len] = '\0';
+
+    // 确认以 "/static/" 开头
+    const char *prefix = "/static/";
+    size_t prefix_len = strlen(prefix);
+    if (strncmp(uri_buf, prefix, prefix_len) != 0)
+    {
+        mg_http_reply(c, 400, "", "Bad Request\n");
+        return;
+    }
+
+    // 取出相对路径部分
+    const char *rel_path = uri_buf + prefix_len;
+    if (strlen(rel_path) == 0)
+    {
+        mg_http_reply(c, 400, "", "文件路径不能为空\n");
+        return;
+    }
+
+    // 路径安全检查，禁止目录穿越
+    if (strstr(rel_path, "..") != NULL)
+    {
+        mg_http_reply(c, 400, "", "非法文件路径\n");
+        return;
+    }
+
+    // 构造完整文件路径
+    char file_path[512];
+    snprintf(file_path, sizeof(file_path), "%s/%s", base_dir, rel_path);
+
+    // 打开文件
+    struct mg_fd *fd = mg_fs_open(fs, file_path, MG_FS_READ);
+    if (fd == NULL)
+    {
+        mg_http_reply(c, 404, "", "文件未找到\n");
+        return;
+    }
+
+    // 获取文件大小和修改时间
+    size_t size;
+    time_t mtime;
+    if (fs->st(file_path, &size, &mtime) < 0)
+    {
+        mg_fs_close(fd);
+        mg_http_reply(c, 500, "", "无法获取文件信息\n");
+        return;
+    }
+
+    if (size > MAX_UPLOAD_SIZE)
+    {
+        mg_fs_close(fd);
+        mg_http_reply(c, 413, "", "文件过大\n");
+        return;
+    }
+
+    // 读取文件内容
+    char *buf = malloc(size);
+    if (!buf)
+    {
+        mg_fs_close(fd);
+        mg_http_reply(c, 500, "", "内存不足\n");
+        return;
+    }
+
+    size_t n = fs->rd(fd->fd, buf, size);
+    mg_fs_close(fd);
+    if (n != size)
+    {
+        free(buf);
+        mg_http_reply(c, 500, "", "读取文件失败\n");
+        return;
+    }
+
+    // 根据文件扩展名返回Content-Type
+    struct mg_str mime = mg_http_get_mime(file_path);
+
+    // 返回文件内容
+    mg_printf(c,
+              "HTTP/1.1 200 OK\r\n"
+              "Content-Type: %.*s\r\n"
+              "Content-Length: %zu\r\n"
+              "Connection: close\r\n"
+              "\r\n",
+              (int)mime.len, mime.buf, size);
+
+    mg_send(c, buf, size);
+
+    free(buf);
+}
+
 // 连接事件处理函数，处理HTTP请求、WebSocket连接及消息等
 static void fn(struct mg_connection *c, int ev, void *ev_data)
 {
@@ -663,6 +863,10 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
             char response[4096];
             int len = snprintf(response, sizeof(response), head_fmt, strlen(html_page_ftp), html_page_ftp);
             mg_send(c, response, len);
+        }
+        else if (mg_match(hm->uri, mg_str("/static/"), NULL))
+        {
+            handle_static_file(c, hm);
         }
         else
         {
@@ -715,17 +919,44 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
     }
 }
 
+void send_tagged_data(struct mg_connection *ws_conn)
+{
+    /*
+        {
+            "type": "data",           // 消息类型，固定为 "data"
+            "label": "temperature",   // 数据标签，标识数据类别
+            "timestamp": 1687000000,  // UNIX 时间戳（秒）
+            "value": 23.5             // 数据值，数值或数组
+        }
+    */
+    if (ws_conn == NULL)
+        return;
+
+    time_t now = time(NULL);
+    char buf[256];
+
+    // 示例：发送温度数据
+    float temperature = 23.5; // 这里用实际采集数据替代
+    int len = snprintf(buf, sizeof(buf),
+                       "{\"type\":\"data\",\"label\":\"temperature\",\"timestamp\":%ld,\"value\":%.2f}",
+                       now, temperature);
+    mg_ws_send(ws_conn, buf, len, WEBSOCKET_OP_TEXT);
+
+    // 示例：发送湿度数据
+    float humidity = 60.2;
+    len = snprintf(buf, sizeof(buf),
+                   "{\"type\":\"data\",\"label\":\"humidity\",\"timestamp\":%ld,\"value\":%.2f}",
+                   now, humidity);
+    mg_ws_send(ws_conn, buf, len, WEBSOCKET_OP_TEXT);
+}
+
 // 定时器回调函数，每2秒调用一次，向客户端发送服务器当前时间
 static void timer_cb(void *arg)
 {
     (void)arg;
     if (ws_conn != NULL)
     {
-        char buf[64];
-        time_t now = time(NULL);
-        struct tm *tm_info = localtime(&now);
-        strftime(buf, sizeof(buf), "服务器时间: %Y-%m-%d %H:%M:%S", tm_info);
-        mg_ws_send(ws_conn, buf, strlen(buf), WEBSOCKET_OP_TEXT);
+        send_tagged_data(ws_conn);
     }
 }
 

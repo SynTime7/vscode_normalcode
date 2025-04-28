@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>数据图表展示</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  body { font-family: Arial, sans-serif; padding: 20px; background: #f0f0f0; }
+  h1 { color: #5a3dbf; }
+  canvas { background: #fff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+</style>
+</head>
+<body>
+<h1>实时数据图表</h1>
+<canvas id="chart" width="800" height="400"></canvas>
+
+<script>
+  const ctx = document.getElementById('chart').getContext('2d');
+
+  // 存储不同标签的数据集
+  const datasets = {};
+
+  const chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [], // 时间标签
+      datasets: []
+    },
+    options: {
+      responsive: true,
+      scales: {
+        x: {
+          type: 'time',
+          time: { parser: 'unix', tooltipFormat: 'HH:mm:ss', unit: 'second', displayFormats: { second: 'HH:mm:ss' } },
+          title: { display: true, text: '时间' }
+        },
+        y: {
+          beginAtZero: true,
+          title: { display: true, text: '数值' }
+        }
+      }
+    }
+  });
+
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+
+  ws.onmessage = event => {
+    try {
+      const msg = JSON.parse(event.data);
+      if (msg.type === 'data' && msg.label && typeof msg.value === 'number' && msg.timestamp) {
+        const time = new Date(msg.timestamp * 1000);
+
+        // 如果该标签数据集不存在，创建一个新的
+        if (!datasets[msg.label]) {
+          const color = getRandomColor();
+          const newDataset = {
+            label: msg.label,
+            data: [],
+            borderColor: color,
+            backgroundColor: color,
+            fill: false,
+            tension: 0.3
+          };
+          datasets[msg.label] = newDataset;
+          chart.data.datasets.push(newDataset);
+        }
+
+        // 限制数据点数量，避免内存过大
+        const dataSet = datasets[msg.label];
+        dataSet.data.push({ x: time, y: msg.value });
+        if (dataSet.data.length > 50) {
+          dataSet.data.shift();
+        }
+
+        // 更新横轴时间标签（取所有数据点的时间）
+        const allTimes = [];
+        chart.data.datasets.forEach(ds => ds.data.forEach(pt => allTimes.push(pt.x)));
+        const uniqueTimes = [...new Set(allTimes)].sort((a,b) => a - b);
+        chart.data.labels = uniqueTimes;
+
+        chart.update();
+      }
+    } catch (e) {
+      console.error('解析WebSocket消息失败:', e);
+    }
+  };
+
+  function getRandomColor() {
+    const r = Math.floor(Math.random()*200)+30;
+    const g = Math.floor(Math.random()*200)+30;
+    const b = Math.floor(Math.random()*200)+30;
+    return `rgba(${r},${g},${b},1)`;
+  }
+</script>
+</body>
+</html>
