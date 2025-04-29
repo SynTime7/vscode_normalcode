@@ -1,97 +1,275 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>数据图表展示</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<style>
-  body { font-family: Arial, sans-serif; padding: 20px; background: #f0f0f0; }
-  h1 { color: #5a3dbf; }
-  canvas { background: #fff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>实时数据图表 - 时间戳横轴示例</title>
+  <!-- Chart.js -->
+  <script src="chart.umd.min.js"></script>
+  <!-- 日期适配器 -->
+  <script src="chartjs-adapter-date-fns.bundle.min.js"></script>
+  <!-- 缩放插件 -->
+  <script src="chartjs-plugin-zoom.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #a3bffa, #c1d4ff);
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .container {
+      background: #f8fbff;
+      border-radius: 20px;
+      box-shadow: 0 16px 40px rgba(0, 0, 50, 0.12);
+      padding: 32px 48px;
+      max-width: 900px;
+      width: 90vw;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    h1 {
+      color: #1f2a56;
+      font-size: 2rem;
+      font-weight: 700;
+      margin-bottom: 24px;
+      user-select: none;
+    }
+
+    /* 横向滚动容器 */
+    .chart-wrapper {
+      width: 100%;
+      overflow-x: auto;
+      border-radius: 16px;
+      box-shadow: inset 0 0 20px #cbd6f2;
+      background: #e6ecf8;
+    }
+
+    /* 画布宽度设置大于容器宽度，支持横向滚动 */
+    canvas#chart {
+      display: block;
+      height: 420px !important;
+      width: 1600px !important;
+      border-radius: 16px;
+    }
+
+    .description {
+      margin-top: 24px;
+      font-size: 1.1rem;
+      color: #4a557a;
+      user-select: none;
+      text-align: center;
+      max-width: 600px;
+      font-weight: 500;
+    }
+  </style>
 </head>
+
 <body>
-<h1>实时数据图表</h1>
-<canvas id="chart" width="800" height="400"></canvas>
+  <div class="container">
+    <h1>实时数据图表（时间戳横轴 + 缩放）</h1>
+    <div class="chart-wrapper">
+      <canvas id="chart" width="1600" height="420"></canvas>
+    </div>
+    <div class="description">
+      横轴为时间，支持横向滚动和鼠标缩放/拖动查看数据。
+    </div>
+  </div>
 
-<script>
-  const ctx = document.getElementById('chart').getContext('2d');
+  <script>
+    // 注册缩放插件
+    Chart.register(ChartZoom);
 
-  // 存储不同标签的数据集
-  const datasets = {};
+    const ctx = document.getElementById('chart').getContext('2d');
 
-  const chart = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: [], // 时间标签
-      datasets: []
-    },
-    options: {
-      responsive: true,
-      scales: {
-        x: {
-          type: 'time',
-          time: { parser: 'unix', tooltipFormat: 'HH:mm:ss', unit: 'second', displayFormats: { second: 'HH:mm:ss' } },
-          title: { display: true, text: '时间' }
+    const datasets = {};
+
+    const chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        datasets: []
+      },
+      options: {
+        responsive: false, // 关闭响应式，使用固定宽度画布
+        animation: {
+          duration: 600,
+          easing: 'easeOutQuart'
         },
-        y: {
-          beginAtZero: true,
-          title: { display: true, text: '数值' }
+        interaction: {
+          mode: 'nearest',
+          intersect: false
+        },
+        plugins: {
+          legend: {
+            position: 'top',
+            labels: {
+              font: { size: 15 },
+              color: '#1f2a56'
+            }
+          },
+          tooltip: {
+            enabled: true,
+            mode: 'nearest',
+            intersect: false,
+            backgroundColor: 'rgba(31, 42, 86, 0.9)',
+            titleFont: { size: 15 },
+            bodyFont: { size: 14 },
+            padding: 10,
+            cornerRadius: 8
+          },
+          zoom: {
+            pan: {
+              enabled: true,
+              mode: 'x',
+              modifierKey: 'ctrl', // 按住Ctrl键拖动平移
+            },
+            zoom: {
+              wheel: {
+                enabled: true,
+              },
+              pinch: {
+                enabled: true
+              },
+              mode: 'x',
+            }
+          }
+        },
+        scales: {
+          x: {
+            type: 'time',
+            time: {
+              tooltipFormat: 'HH:mm:ss',
+              unit: 'second',
+              displayFormats: {
+                second: 'HH:mm:ss',
+                minute: 'HH:mm',
+                hour: 'HH:mm'
+              }
+            },
+            title: {
+              display: true,
+              text: '时间',
+              color: '#1f2a56',
+              font: { size: 17, weight: '600' }
+            },
+            ticks: {
+              color: '#4a557a',
+              maxTicksLimit: 20
+            },
+            beginAtZero: false
+          },
+          y: {
+            beginAtZero: false,
+            title: {
+              display: true,
+              text: '数值',
+              color: '#1f2a56',
+              font: { size: 17, weight: '600' }
+            },
+            ticks: { color: '#4a557a' },
+            grid: { color: '#d1d9f0' }
+          }
         }
       }
+    });
+
+    // 生成随机颜色
+    function getRandomColor() {
+      const r = Math.floor(Math.random() * 200) + 30;
+      const g = Math.floor(Math.random() * 200) + 30;
+      const b = Math.floor(Math.random() * 200) + 30;
+      return `rgba(${r},${g},${b},1)`;
     }
-  });
 
-  const ws = new WebSocket(`ws://${location.host}/ws`);
-
-  ws.onmessage = event => {
-    try {
-      const msg = JSON.parse(event.data);
-      if (msg.type === 'data' && msg.label && typeof msg.value === 'number' && msg.timestamp) {
-        const time = new Date(msg.timestamp * 1000);
-
-        // 如果该标签数据集不存在，创建一个新的
-        if (!datasets[msg.label]) {
-          const color = getRandomColor();
-          const newDataset = {
-            label: msg.label,
-            data: [],
-            borderColor: color,
-            backgroundColor: color,
-            fill: false,
-            tension: 0.3
-          };
-          datasets[msg.label] = newDataset;
-          chart.data.datasets.push(newDataset);
-        }
-
-        // 限制数据点数量，避免内存过大
-        const dataSet = datasets[msg.label];
-        dataSet.data.push({ x: time, y: msg.value });
-        if (dataSet.data.length > 50) {
-          dataSet.data.shift();
-        }
-
-        // 更新横轴时间标签（取所有数据点的时间）
-        const allTimes = [];
-        chart.data.datasets.forEach(ds => ds.data.forEach(pt => allTimes.push(pt.x)));
-        const uniqueTimes = [...new Set(allTimes)].sort((a,b) => a - b);
-        chart.data.labels = uniqueTimes;
-
-        chart.update();
+    // 处理单条数据点，x轴用服务器时间戳（毫秒）代替序号
+    function handleDataPoint(msg) {
+      if (!datasets[msg.label]) {
+        const color = getRandomColor();
+        const newDataset = {
+          label: msg.label,
+          data: [],
+          borderColor: color,
+          backgroundColor: color,
+          fill: false,
+          tension: 0.3,
+          pointRadius: 3,
+          pointHoverRadius: 6,
+        };
+        datasets[msg.label] = newDataset;
+        chart.data.datasets.push(newDataset);
       }
-    } catch (e) {
-      console.error('解析WebSocket消息失败:', e);
-    }
-  };
 
-  function getRandomColor() {
-    const r = Math.floor(Math.random()*200)+30;
-    const g = Math.floor(Math.random()*200)+30;
-    const b = Math.floor(Math.random()*200)+30;
-    return `rgba(${r},${g},${b},1)`;
-  }
-</script>
+      const dataSet = datasets[msg.label];
+
+      // 这里假设 msg.time 是毫秒级时间戳，如果是秒级请乘以1000
+      const timeValue = typeof msg.time === 'number' ? msg.time : Date.now();
+
+      dataSet.data.push({ x: timeValue, y: msg.value });
+
+      // 限制数据点数量，避免内存和性能问题
+      if (dataSet.data.length > 200) {
+        dataSet.data.shift();
+      }
+
+      chart.update('none'); // 使用无动画更新，提升性能
+    }
+
+    // WebSocket连接
+    const ws = new WebSocket(`ws://${location.host}/ws`);
+
+    ws.onopen = () => {
+      console.log('WebSocket连接已建立');
+    };
+
+    ws.onclose = () => {
+      console.log('WebSocket连接已关闭');
+    };
+
+    ws.onmessage = event => {
+      try {
+        const msgs = JSON.parse(event.data);
+
+        if (Array.isArray(msgs)) {
+          msgs.forEach(msg => {
+            if (
+              msg.type === 'data' &&
+              typeof msg.label === 'string' &&
+              msg.label.length > 0 &&
+              typeof msg.value === 'number' &&
+              (typeof msg.time === 'number' || typeof msg.timestamp === 'number')
+            ) {
+              // 兼容 time 或 timestamp 字段
+              if (typeof msg.time !== 'number' && typeof msg.timestamp === 'number') {
+                msg.time = msg.timestamp;
+              }
+              handleDataPoint(msg);
+            }
+          });
+        } else if (
+          msgs.type === 'data' &&
+          typeof msgs.label === 'string' &&
+          msgs.label.length > 0 &&
+          typeof msgs.value === 'number' &&
+          (typeof msgs.time === 'number' || typeof msgs.timestamp === 'number')
+        ) {
+          if (typeof msgs.time !== 'number' && typeof msgs.timestamp === 'number') {
+            msgs.time = msgs.timestamp;
+          }
+          handleDataPoint(msgs);
+        }
+      } catch (e) {
+        // JSON解析失败忽略
+      }
+    };
+  </script>
 </body>
+
 </html>

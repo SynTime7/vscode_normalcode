@@ -8,6 +8,7 @@
 #include "mongoose.h"
 #include <time.h>
 #include <stdio.h>
+#include <stdarg.h>
 
 #pragma comment(lib, "ws2_32.lib")
 
@@ -272,6 +273,7 @@ const char *html_page_inputandview =
     "        <button id=\"openUploadBtn\" type=\"button\">上传文件</button>"
     "        <button id=\"openFtpBtn\" type=\"button\">FTP</button>"
     "        <button id=\"clearOutputBtn\" type=\"button\">Clear</button>"
+    "        <button id=\"openStaticBtn\"type=\"button\">打开静态文件</button>"
     "      </div>"
     "    </form>"
     "  </div>"
@@ -725,6 +727,7 @@ static void handle_static_file(struct mg_connection *c, struct mg_http_message *
 {
     struct mg_fs *fs = &mg_fs_posix;
     const char *base_dir = "frontend"; // 静态文件根目录
+    chdir("D:\\workspace\\vscode_workspace\\vscode_normalcode\\");
 
     // 先把 hm->uri 复制到缓冲区，添加 \0
     char uri_buf[512];
@@ -814,7 +817,7 @@ static void handle_static_file(struct mg_connection *c, struct mg_http_message *
     mg_printf(c,
               "HTTP/1.1 200 OK\r\n"
               "Content-Type: %.*s\r\n"
-              "Content-Length: %zu\r\n"
+              "Content-Length: %ld\r\n"
               "Connection: close\r\n"
               "\r\n",
               (int)mime.len, mime.buf, size);
@@ -822,6 +825,53 @@ static void handle_static_file(struct mg_connection *c, struct mg_http_message *
     mg_send(c, buf, size);
 
     free(buf);
+}
+
+struct ws_conn_node
+{
+    struct mg_connection *conn;
+    struct ws_conn_node *next;
+};
+
+static struct ws_conn_node *ws_conn_list = NULL;
+
+// 添加连接到列表
+static void ws_conn_add(struct mg_connection *c)
+{
+    struct ws_conn_node *node = malloc(sizeof(*node));
+    if (node == NULL)
+        return;
+    node->conn = c;
+    node->next = ws_conn_list;
+    ws_conn_list = node;
+}
+
+// 从列表删除连接
+static void ws_conn_remove(struct mg_connection *c)
+{
+    struct ws_conn_node **p = &ws_conn_list;
+    while (*p)
+    {
+        if ((*p)->conn == c)
+        {
+            struct ws_conn_node *to_free = *p;
+            *p = (*p)->next;
+            free(to_free);
+            return;
+        }
+        p = &(*p)->next;
+    }
+}
+
+// 向所有连接广播消息
+static void ws_broadcast(const char *msg, size_t len)
+{
+    struct ws_conn_node *node = ws_conn_list;
+    while (node)
+    {
+        mg_ws_send(node->conn, msg, len, WEBSOCKET_OP_TEXT);
+        node = node->next;
+    }
 }
 
 // 连接事件处理函数，处理HTTP请求、WebSocket连接及消息等
@@ -864,7 +914,7 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
             int len = snprintf(response, sizeof(response), head_fmt, strlen(html_page_ftp), html_page_ftp);
             mg_send(c, response, len);
         }
-        else if (mg_match(hm->uri, mg_str("/static/"), NULL))
+        else if (mg_match(hm->uri, mg_str("/static/#"), NULL))
         {
             handle_static_file(c, hm);
         }
@@ -876,12 +926,9 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
         break;
     }
     case MG_EV_WS_OPEN:
-    {
-        // WebSocket连接建立，保存连接指针
-        ws_conn = c;
+        ws_conn_add(c);
         printf("WebSocket连接已建立\n");
         break;
-    }
     case MG_EV_WS_MSG:
     {
         // 收到WebSocket消息，处理客户端发送的命令
@@ -907,15 +954,9 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
         break;
     }
     case MG_EV_CLOSE:
-    {
-        // 连接关闭时清理WebSocket连接指针
-        if (ws_conn == c)
-        {
-            ws_conn = NULL;
-            printf("WebSocket连接已关闭\n");
-        }
+        ws_conn_remove(c);
+        printf("WebSocket连接已关闭\n");
         break;
-    }
     }
 }
 
@@ -925,7 +966,6 @@ void send_tagged_data(struct mg_connection *ws_conn)
         {
             "type": "data",           // 消息类型，固定为 "data"
             "label": "temperature",   // 数据标签，标识数据类别
-            "timestamp": 1687000000,  // UNIX 时间戳（秒）
             "value": 23.5             // 数据值，数值或数组
         }
     */
@@ -950,13 +990,280 @@ void send_tagged_data(struct mg_connection *ws_conn)
     mg_ws_send(ws_conn, buf, len, WEBSOCKET_OP_TEXT);
 }
 
-// 定时器回调函数，每2秒调用一次，向客户端发送服务器当前时间
+// 向所有WebSocket客户端广播一条文本消息（类似串口打印）
+void ws_broadcast_text(const char *text)
+{
+    if (text == NULL)
+        return;
+    ws_broadcast(text, strlen(text));
+}
+
+// 向所有WebSocket客户端广播格式化文本消息
+void ws_broadcast_printf(const char *fmt, ...)
+{
+    char buf[512];
+    va_list args;
+    va_start(args, fmt);
+    int len = vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+
+    if (len > 0)
+    {
+        if (len > (int)sizeof(buf))
+            len = sizeof(buf);
+        ws_broadcast(buf, len);
+    }
+}
+
+// 发送单条数据，label为标签，value为数值
+void ws_send_data(const char *label, float value)
+{
+    if (label == NULL)
+        return;
+
+    char buf[256];
+    int len = snprintf(buf, sizeof(buf),
+                       "{\"type\":\"data\",\"label\":\"%s\",\"value\":%.2f}",
+                       label, value);
+    if (len > 0)
+    {
+        ws_broadcast(buf, len);
+    }
+}
+
+// 发送缓冲区结构体
+typedef struct
+{
+    char *buf;       // 动态分配的缓冲区指针，用于存储待发送的JSON字符串数据
+    size_t capacity; // 缓冲区的总容量（字节数），表示buf当前分配的内存大小
+    size_t length;   // 当前缓冲区中已使用的长度（字节数），即buf中有效数据的长度
+    int open_array;  // 标志位，表示是否已经开始了一个JSON数组（即是否已写入了'['）
+    mutex_t mutex;   // 互斥锁，用于保护缓冲区的多线程访问，保证线程安全
+} send_buffer_t;
+
+#define INITIAL_CAPACITY 4096
+
+// 初始化缓冲区
+void send_buffer_init(send_buffer_t *sb)
+{
+    sb->buf = malloc(INITIAL_CAPACITY);
+    sb->capacity = sb->buf ? INITIAL_CAPACITY : 0;
+    sb->length = 0;
+    sb->open_array = 0;
+    mutex_init(&sb->mutex);
+}
+
+// 释放缓冲区
+void send_buffer_free(send_buffer_t *sb)
+{
+    if (sb->buf)
+        free(sb->buf);
+    mutex_destroy(&sb->mutex);
+    sb->buf = NULL;
+    sb->capacity = 0;
+    sb->length = 0;
+    sb->open_array = 0;
+}
+
+// 确保缓冲区容量足够，失败返回0，成功返回1
+int send_buffer_ensure_capacity(send_buffer_t *sb, size_t add_len)
+{
+    if (sb->length + add_len >= sb->capacity)
+    {
+        size_t new_capacity = sb->capacity * 2;
+        while (new_capacity < sb->length + add_len)
+        {
+            new_capacity *= 2;
+        }
+        char *new_buf = realloc(sb->buf, new_capacity);
+        if (!new_buf)
+            return 0;
+        sb->buf = new_buf;
+        sb->capacity = new_capacity;
+    }
+    return 1;
+}
+
+// 开始JSON数组，线程安全
+void send_buffer_start(send_buffer_t *sb)
+{
+    mutex_lock(&sb->mutex);
+    sb->length = 0;
+    sb->open_array = 1;
+    if (sb->capacity < 2)
+    {
+        char *new_buf = realloc(sb->buf, 2);
+        if (new_buf)
+        {
+            sb->buf = new_buf;
+            sb->capacity = 2;
+        }
+    }
+    if (sb->buf)
+    {
+        sb->buf[0] = '[';
+        sb->length = 1;
+    }
+    mutex_unlock(&sb->mutex);
+}
+
+// 结束JSON数组，线程安全
+void send_buffer_end(send_buffer_t *sb)
+{
+    mutex_lock(&sb->mutex);
+    if (!sb->open_array)
+    {
+        mutex_unlock(&sb->mutex);
+        return;
+    }
+    // 去掉最后一个逗号
+    if (sb->length > 1 && sb->buf[sb->length - 1] == ',')
+    {
+        sb->length--;
+    }
+    if (sb->length + 1 >= sb->capacity)
+    {
+        char *new_buf = realloc(sb->buf, sb->capacity + 1);
+        if (new_buf)
+        {
+            sb->buf = new_buf;
+            sb->capacity += 1;
+        }
+    }
+    sb->buf[sb->length++] = ']';
+    sb->buf[sb->length] = '\0';
+    sb->open_array = 0;
+    mutex_unlock(&sb->mutex);
+}
+
+// 向缓冲区添加一条JSON数据对象，格式如 {"type":"data","label":"temperature","value":23.5},
+// 传入时间戳time_ms（毫秒），返回1成功，0失败
+int send_buffer_add_data(send_buffer_t *sb, const char *label, uint64_t time_ms, float value)
+{
+    char item[512];
+    int len = snprintf(item, sizeof(item),
+                       "{\"type\":\"data\",\"label\":\"%s\",\"time\":%lu,\"value\":%.2f},",
+                       label, time_ms, value);
+
+    if (len <= 0 || len >= (int)sizeof(item))
+        return 0;
+
+    mutex_lock(&sb->mutex);
+    if (!sb->open_array)
+    {
+        // 如果没开始，先开始
+        send_buffer_start(sb);
+    }
+    if (!send_buffer_ensure_capacity(sb, (size_t)len))
+    {
+        mutex_unlock(&sb->mutex);
+        return 0;
+    }
+    memcpy(sb->buf + sb->length, item, len);
+    sb->length += len;
+    mutex_unlock(&sb->mutex);
+    return 1;
+}
+
+// 发送缓冲区数据给所有客户端，发送后清空缓冲区，线程安全
+void send_buffer_flush(send_buffer_t *sb)
+{
+    mutex_lock(&sb->mutex);
+    if (sb->length == 0)
+    {
+        mutex_unlock(&sb->mutex);
+        return;
+    }
+    if (sb->open_array)
+    {
+        // 结束JSON数组
+        if (sb->length > 1 && sb->buf[sb->length - 1] == ',')
+        {
+            sb->length--;
+        }
+        if (sb->length + 1 >= sb->capacity)
+        {
+            char *new_buf = realloc(sb->buf, sb->capacity + 1);
+            if (new_buf)
+            {
+                sb->buf = new_buf;
+                sb->capacity += 1;
+            }
+        }
+        sb->buf[sb->length++] = ']';
+        sb->buf[sb->length] = '\0';
+        sb->open_array = 0;
+    }
+    else
+    {
+        // 确保字符串结束
+        if (sb->length >= sb->capacity)
+        {
+            char *new_buf = realloc(sb->buf, sb->capacity + 1);
+            if (new_buf)
+            {
+                sb->buf = new_buf;
+                sb->capacity += 1;
+            }
+        }
+        sb->buf[sb->length] = '\0';
+    }
+
+    // 复制一份数据，避免发送时缓冲区被修改
+    char *send_data = malloc(sb->length + 1);
+    if (send_data)
+    {
+        memcpy(send_data, sb->buf, sb->length + 1);
+    }
+    // 清空缓冲区
+    sb->length = 0;
+    sb->open_array = 0;
+    mutex_unlock(&sb->mutex);
+
+    if (send_data)
+    {
+        // 这里调用你已有的广播函数，向所有WebSocket客户端发送数据
+        ws_broadcast(send_data, strlen(send_data));
+        free(send_data);
+    }
+}
+
+// void example_usage()
+// {
+//     // 发送普通文本
+//     ws_broadcast_text("Hello from server!\n");
+
+//     // 发送格式化文本
+//     ws_broadcast_printf("Temperature is %.2f C\n", 23.5f);
+
+//     // 发送结构化数据
+//     ws_send_data("temperature", 23.5f);
+//     ws_send_data("humidity", 60.2f);
+// }
+
+// 定时器回调函数，每2秒调用一次，向所有WebSocket客户端发送批量数据
 static void timer_cb(void *arg)
 {
-    (void)arg;
-    if (ws_conn != NULL)
+    send_buffer_t *sb = (send_buffer_t *)arg;
+
+    // 模拟采集数据，追加到缓冲区
+    time_t now_sec = time(NULL);
+    uint64_t now_ms = (uint64_t)now_sec * 1000;
+
+    // 发送温度数据
+    send_buffer_add_data(sb, "temperature", now_ms, 23.5f);
+
+    // 发送湿度数据
+    send_buffer_add_data(sb, "humidity", now_ms, 60.2f);
+
+    // 如果缓冲区数据超过一定大小，立即发送
+    mutex_lock(&sb->mutex);
+    size_t len = sb->length;
+    mutex_unlock(&sb->mutex);
+
+    if (len > sb->capacity / 6)
     {
-        send_tagged_data(ws_conn);
+        send_buffer_flush(sb);
     }
 }
 
@@ -968,11 +1275,18 @@ int main()
     struct mg_mgr mgr;                                     // Mongoose事件管理器，管理所有连接
     mg_mgr_init(&mgr);                                     // 初始化事件管理器
     mg_http_listen(&mgr, "http://0.0.0.0:8000", fn, NULL); // 监听0.0.0.0:8000端口，绑定事件处理函数fn
+
+    // 初始化发送缓冲区
+    static send_buffer_t send_buf;
+    send_buffer_init(&send_buf);
+
     // 初始化定时器，周期2秒，重复调用timer_cb函数
-    mg_timer_add(&mgr, 2000, MG_TIMER_REPEAT, timer_cb, NULL);
+    mg_timer_add(&mgr, 2000, MG_TIMER_REPEAT, timer_cb, &send_buf);
     for (;;)
     {
         mg_mgr_poll(&mgr, 1000); // 事件循环，等待并处理事件，超时1000ms
     }
+
+    send_buffer_free(&send_buf);
     return 0;
 }
