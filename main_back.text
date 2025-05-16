@@ -1,0 +1,1306 @@
+#define _CRT_SECURE_NO_WARNINGS
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <winsock2.h>
+#include <ctype.h> // 用于isxdigit函数
+#include "top.h"
+#include "mongoose.h"
+#include <time.h>
+#include <stdio.h>
+#include <stdarg.h>
+
+#pragma comment(lib, "ws2_32.lib")
+
+static struct mg_connection *ws_conn = NULL; // 保存WebSocket连接指针
+static struct mg_timer timer;                // 定时器对象
+
+#define UPLOAD_DIR "uploads"
+#define MAX_UPLOAD_SIZE (10 * 1024 * 1024) // 最大10MB
+
+// HTTP响应头格式字符串
+const char *head_fmt =
+    "HTTP/1.1 200 OK\r\n"
+    "Content-Type: text/html; charset=utf-8\r\n"
+    "Content-Length: %ld\r\n"
+    "Connection: close\r\n"
+    "\r\n"
+    "%s";
+
+const char *css_style_inputandview =
+    "<style>"
+    /* 页面整体背景和字体设置 */
+    "body {"
+    "  background: #F9F9F9;" /* 浅灰白背景 */
+    "  color: #333333;"       /* 深灰文字 */
+    "  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;" /* 现代无衬线字体 */
+    "  padding: 30px;"
+    "  margin: 0;"
+    "  height: 100vh;"
+    "  display: flex;"
+    "  justify-content: center;"
+    "  align-items: center;"
+    "}"
+    /* 容器样式，白色背景，圆角和阴影 */
+    ".container {"
+    "  max-width: 1300px;"
+    "  width: 100%;"
+    "  background: #FFFFFF;" /* 白色背景 */
+    "  padding: 30px 35px;"
+    "  border-radius: 16px;" /* 圆角 */
+    "  box-shadow: 0 8px 24px rgba(0, 123, 255, 0.15);" /* 蓝色阴影 */
+    "  border: 1px solid #CCCCCC;" /* 浅灰边框 */
+    "  color: #333333;"
+    "  display: flex;"
+    "  flex-direction: row;"
+    "  gap: 30px;"
+    "  height: 800px;"
+    "  box-sizing: border-box;"
+    "  min-width: 0;"
+    "}"
+    /* 左侧面板，固定宽度 */
+    ".left-panel {"
+    "  flex: 0 0 40%;"
+    "  display: flex;"
+    "  flex-direction: column;"
+    "}"
+    /* 右侧面板，自适应宽度 */
+    ".right-panel {"
+    "  flex: 1;"
+    "  display: flex;"
+    "  flex-direction: column;"
+    "  min-width: 0;"
+    "}"
+    /* 文本输入框样式 */
+    "input[type=text] {"
+    "  width: 100%;"
+    "  padding: 14px 18px;"
+    "  margin: 12px 0;"
+    "  box-sizing: border-box;"
+    "  border-radius: 10px;" /* 圆角 */
+    "  border: 1.8px solid #CCCCCC;" /* 浅灰边框 */
+    "  background: #FFFFFF;" /* 白色背景 */
+    "  color: #333333;"      /* 深灰文字 */
+    "  font-size: 16px;"
+    "  transition: border-color 0.3s ease, background-color 0.3s ease;" /* 平滑过渡 */
+    "}"
+    /* 输入框聚焦时的高亮效果 */
+    "input[type=text]:focus {"
+    "  outline: none;"
+    "  border-color: #007BFF;" /* 亮蓝色边框 */
+    "  background-color: #E6F0FF;" /* 浅蓝背景 */
+    "  box-shadow: 0 0 10px #007BFF;" /* 蓝色阴影 */
+    "}"
+    /* 按钮行容器，支持换行和间距 */
+    ".button-row {"
+    "  display: flex;"
+    "  flex-wrap: wrap;"
+    "  gap: 12px;"
+    "  margin-top: 12px;"
+    "  justify-content: flex-start;"
+    "}"
+    /* 按钮和提交按钮通用样式 */
+    ".button-row input[type=submit],"
+    ".button-row button {"
+    "  flex: none;"
+    "  padding: 14px 28px;"
+    "  border-radius: 10px;" /* 圆角 */
+    "  font-weight: 700;"
+    "  font-size: 16px;"
+    "  cursor: pointer;"
+    "  box-shadow: 0 5px 15px rgba(0, 123, 255, 0.5);" /* 蓝色阴影 */
+    "}"
+    /* 提交按钮默认样式 */
+    ".button-row input[type=submit] {"
+    "  background-color: #007BFF;" /* 亮蓝色背景 */
+    "  color: #FFFFFF;"             /* 白色文字 */
+    "  border: none;"
+    "}"
+    /* 提交按钮悬停效果 */
+    ".button-row input[type=submit]:hover {"
+    "  background-color: #0056b3;" /* 深蓝色 */
+    "  box-shadow: 0 7px 20px rgba(0, 86, 179, 0.7);" /* 加强阴影 */
+    "}"
+    /* 普通按钮默认样式 */
+    ".button-row button {"
+    "  background-color: #007BFF;"
+    "  color: #FFFFFF;"
+    "  border: none;"
+    "  box-shadow: 0 5px 15px rgba(0, 123, 255, 0.5);"
+    "}"
+    /* 普通按钮悬停效果 */
+    ".button-row button:hover {"
+    "  background-color: #0056b3;"
+    "  box-shadow: 0 7px 20px rgba(0, 86, 179, 0.7);"
+    "}"
+    /* 输出区域样式 */
+    "pre#output {"
+    "  flex: 1;"
+    "  background: #E6F0FF;" /* 浅蓝背景 */
+    "  padding: 22px;"
+    "  border-radius: 16px;"
+    "  overflow-y: auto;"
+    "  overflow-x: auto;"
+    "  white-space: pre-wrap;"
+    "  word-wrap: break-word;"
+    "  word-break: break-word;"
+    "  font-size: 15px;"
+    "  margin-top: 12px;"
+    "  color: #333333;"
+    "  box-shadow: inset 0 0 12px #007BFF;" /* 内阴影蓝色 */
+    "  font-family: Consolas, monospace;" /* 等宽字体 */
+    "  min-width: 0;"
+    "  max-width: 100%;"
+    "}"
+    /* 模态框背景，半透明蓝色遮罩 */
+    ".modal {"
+    "  display: none;"
+    "  position: fixed;"
+    "  z-index: 1000;"
+    "  left: 0; top: 0;"
+    "  width: 100%; height: 100%;"
+    "  overflow: auto;"
+    "  background-color: rgba(0, 123, 255, 0.15);" /* 半透明蓝色 */
+    "}"
+    /* 模态框内容样式 */
+    ".modal-content {"
+    "  background-color: #FFFFFF;" /* 白色背景 */
+    "  margin: 10% auto;"
+    "  padding: 20px 30px;"
+    "  border-radius: 16px;"
+    "  max-width: 400px;"
+    "  box-shadow: 0 8px 24px rgba(0, 123, 255, 0.15);" /* 蓝色阴影 */
+    "  color: #333333;"
+    "  position: relative;"
+    "  box-sizing: border-box;"
+    "}"
+    /* 关闭按钮样式 */
+    ".close {"
+    "  color: #333333;"
+    "  position: absolute;"
+    "  top: 12px;"
+    "  right: 20px;"
+    "  font-size: 28px;"
+    "  font-weight: bold;"
+    "  cursor: pointer;"
+    "}"
+    /* 关闭按钮悬停颜色 */
+    ".close:hover {"
+    "  color: #007BFF;"
+    "}"
+    /* 上传表单文件输入框 */
+    "#uploadForm input[type=file] {"
+    "  width: 100%;"
+    "  padding: 6px 0;"
+    "  margin-top: 10px;"
+    "  cursor: pointer;"
+    "}"
+    /* 上传表单提交按钮 */
+    "#uploadForm input[type=submit] {"
+    "  margin-top: 20px;"
+    "  width: 100%;"
+    "  background-color: #007BFF;"
+    "  color: #FFFFFF;"
+    "  padding: 14px 0;"
+    "  border: none;"
+    "  border-radius: 10px;"
+    "  cursor: pointer;"
+    "  font-weight: 700;"
+    "  font-size: 16px;"
+    "  transition: background-color 0.3s ease, box-shadow 0.3s ease;"
+    "  box-shadow: 0 5px 15px rgba(0, 123, 255, 0.5);"
+    "}"
+    /* 上传按钮悬停效果 */
+    "#uploadForm input[type=submit]:hover {"
+    "  background-color: #0056b3;"
+    "  box-shadow: 0 7px 20px rgba(0, 86, 179, 0.7);"
+    "}"
+    /* 上传状态文本 */
+    "#uploadStatus {"
+    "  margin-top: 15px;"
+    "  font-weight: 600;"
+    "  color: #333333;"
+    "}"
+    /* 上传目录标签 */
+    "#uploadForm label[for=saveDir] {"
+    "  display: block;"
+    "  margin-top: 12px;"
+    "  font-weight: 600;"
+    "  color: #333333;"
+    "}"
+    /* 上传目录输入框 */
+    "#uploadForm input#saveDir {"
+    "  width: 100%;"
+    "  padding: 10px 14px;"
+    "  margin-top: 6px;"
+    "  border-radius: 10px;"
+    "  border: 1.8px solid #CCCCCC;"
+    "  background: #FFFFFF;"
+    "  color: #333333;"
+    "  font-size: 15px;"
+    "  box-sizing: border-box;"
+    "  transition: border-color 0.3s ease, background-color 0.3s ease;"
+    "}"
+    /* 上传目录输入框聚焦效果 */
+    "#uploadForm input#saveDir:focus {"
+    "  outline: none;"
+    "  border-color: #007BFF;"
+    "  background-color: #E6F0FF;"
+    "  box-shadow: 0 0 10px #007BFF;"
+    "}"
+    "</style>";
+
+
+const char *html_page_inputandview =
+    "<!DOCTYPE html>"
+    "<html lang=\"zh-CN\">"
+    "<head>"
+    "<meta charset=\"UTF-8\">"
+    "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+    "<title>命令执行服务器</title>"
+    "%.*s"
+    "</head>"
+    "<body>"
+    "<div class=\"container\">"
+    "  <div class=\"left-panel\">"
+    "    <h2>请输入命令和参数</h2>"
+    "    <form id=\"cmdForm\">"
+    "      命令: <input type=\"text\" id=\"command\" placeholder=\"例如: dir\" required><br>"
+    "      参数: <input type=\"text\" id=\"param\" placeholder=\"例如: C:\\\\\"><br>"
+    "      <div class=\"button-row\">"
+    "        <input type=\"submit\" value=\"执行\">"
+    "        <button id=\"openUploadBtn\" type=\"button\">上传文件</button>"
+    "        <button id=\"openFtpBtn\" type=\"button\">FTP</button>"
+    "        <button id=\"clearOutputBtn\" type=\"button\">Clear</button>"
+    "        <button id=\"openStaticBtn\"type=\"button\">打开静态文件</button>"
+    "      </div>"
+    "    </form>"
+    "  </div>"
+    "  <div class=\"right-panel\">"
+    "    <h2>命令执行输出</h2>"
+    "    <pre id=\"output\"></pre>"
+    "  </div>"
+    "</div>"
+
+    "<div id=\"uploadModal\" class=\"modal\">"
+    "  <div class=\"modal-content\">"
+    "    <span id=\"closeModal\" class=\"close\">&times;</span>"
+    "    <h2>上传文件到服务器（分块上传）</h2>"
+    "    <form id=\"uploadForm\">"
+    "      <label for=\"saveDir\">保存目录:</label>"
+    "      <input type=\"text\" id=\"saveDir\" name=\"saveDir\" placeholder=\"例如: upload\" required>"
+    "      <input type=\"file\" id=\"fileInput\" name=\"file\" required>"
+    "      <input type=\"button\" id=\"uploadBtn\" value=\"开始上传\">"
+    "    </form>"
+    "    <div id=\"uploadStatus\"></div>"
+    "    <progress id=\"uploadProgress\" value=\"0\" max=\"100\" style=\"width:100%; margin-top:10px; display:none;\"></progress>"
+    "  </div>"
+    "</div>"
+
+    "<script>"
+    "document.addEventListener('DOMContentLoaded', function() {"
+    "  var ws = new WebSocket('ws://' + location.host + '/ws');"
+    "  var output = document.getElementById('output');"
+
+    "  ws.onmessage = function(evt) {"
+    "    output.textContent += evt.data + '\\n';"
+    "    output.scrollTop = output.scrollHeight;"
+    "  };"
+
+    "  ws.onopen = function() { console.log('WebSocket连接已建立'); };"
+    "  ws.onclose = function() { console.log('WebSocket连接已关闭'); };"
+
+    "  document.getElementById('cmdForm').onsubmit = function(e) {"
+    "    e.preventDefault();"
+    "    var cmd = document.getElementById('command').value.trim();"
+    "    var param = document.getElementById('param').value.trim();"
+    "    var msg = cmd + ';' + param;"
+    "    if (ws.readyState === WebSocket.OPEN) {"
+    "      ws.send(msg);"
+    "      output.textContent += '> ' + msg + '\\n';"
+    "    } else {"
+    "      alert('WebSocket未连接');"
+    "    }"
+    "    return false;"
+    "  };"
+
+    "  var openBtn = document.getElementById('openUploadBtn');"
+    "  var openFtpBtn = document.getElementById('openFtpBtn');"
+    "  var modal = document.getElementById('uploadModal');"
+    "  var closeBtn = document.getElementById('closeModal');"
+    "  var uploadForm = document.getElementById('uploadForm');"
+    "  var uploadStatus = document.getElementById('uploadStatus');"
+    "  var uploadProgress = document.getElementById('uploadProgress');"
+    "  var uploadBtn = document.getElementById('uploadBtn');"
+
+    "  openBtn.onclick = function() {"
+    "    modal.style.display = 'block';"
+    "    uploadStatus.textContent = '';"
+    "    uploadProgress.style.display = 'none';"
+    "    uploadProgress.value = 0;"
+    "    uploadForm.reset();"
+    "  };"
+
+    "  openFtpBtn.onclick = function() {"
+    "  window.open('/ftp', '_blank');"
+    "  };"
+
+    "document.getElementById('clearOutputBtn').onclick = function() {"
+    "var output = document.getElementById('output');"
+    "output.textContent = '';"
+    "};"
+
+    "  closeBtn.onclick = function() {"
+    "    modal.style.display = 'none';"
+    "  };"
+
+    "  window.onclick = function(event) {"
+    "    if (event.target === modal) {"
+    "      modal.style.display = 'none';"
+    "    }"
+    "  };"
+
+    "  uploadBtn.onclick = async function() {"
+    "    var fileInput = document.getElementById('fileInput');"
+    "    var saveDir = document.getElementById('saveDir').value.trim();"
+
+    "    if (!fileInput.files.length) {"
+    "      alert('请选择文件');"
+    "      return;"
+    "    }"
+    "    if (!saveDir) {"
+    "      alert('请输入保存目录');"
+    "      return;"
+    "    }"
+
+    "    var file = fileInput.files[0];"
+    "    var chunkSize = 1024 * 1024;"
+    "    var totalChunks = Math.ceil(file.size / chunkSize);"
+    "    var uploadId = Date.now() + '-' + Math.random().toString(36).substr(2, 9);"
+
+    "    uploadStatus.style.color = '#5a3e36';"
+    "    uploadStatus.textContent = '上传中...';"
+    "    uploadProgress.style.display = 'block';"
+    "    uploadProgress.value = 0;"
+
+    "    for (var chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {"
+    "      var start = chunkIndex * chunkSize;"
+    "      var end = Math.min(start + chunkSize, file.size);"
+    "      var chunk = file.slice(start, end);"
+    "      var formData = new FormData();"
+    "      formData.append('saveDir', saveDir);"
+    "      formData.append('fileName', file.name);"
+    "      formData.append('uploadId', uploadId);"
+    "      formData.append('chunkIndex', chunkIndex);"
+    "      formData.append('totalChunks', totalChunks);"
+    "      formData.append('chunk', chunk);"
+
+    "      try {"
+    "        var response = await fetch('/upload', {"
+    "          method: 'POST',"
+    "          body: formData"
+    "        });"
+    "        if (!response.ok) {"
+    "          throw new Error('服务器返回错误: ' + response.status);"
+    "        }"
+    "        var text = await response.text();"
+    "        if (text.indexOf('错误') !== -1 || text.indexOf('失败') !== -1) {"
+    "          throw new Error(text);"
+    "        }"
+    "      } catch (err) {"
+    "        uploadStatus.style.color = 'red';"
+    "        uploadStatus.textContent = '上传失败: ' + err.message;"
+    "        uploadProgress.style.display = 'none';"
+    "        return;"
+    "      }"
+    "      uploadProgress.value = ((chunkIndex + 1) / totalChunks) * 100;"
+    "    }"
+
+    "    uploadStatus.style.color = 'green';"
+    "    uploadStatus.textContent = '上传成功！';"
+    "    uploadProgress.style.display = 'none';"
+    "  };"
+    "});"
+    "</script>"
+    "</body>"
+    "</html>";
+
+// 1. 新增FTP页面HTML
+const char *html_page_ftp =
+    "<!DOCTYPE html>"
+    "<html lang=\"zh-CN\">"
+    "<head>"
+    "<meta charset=\"UTF-8\">"
+    "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+    "<title>简单FTP页面</title>"
+    "<style>"
+    "body { font-family: Arial, sans-serif; padding: 20px; background: #f0f0f0; }"
+    "h1 { color: #5a3dbf; }"
+    "</style>"
+    "</head>"
+    "<body>"
+    "<h1>欢迎使用简单FTP页面</h1>"
+    "<p>这里可以放置FTP相关功能或说明。</p>"
+    "</body>"
+    "</html>";
+
+// 判断目录是否存在，返回0表示存在，-1表示不存在或错误
+static int mg_fs_dir_exists(struct mg_fs *fs, const char *path)
+{
+    size_t size;
+    time_t mtime;
+    int r = fs->st(path, &size, &mtime);
+    if (r < 0)
+        return -1;
+    if ((r & MG_FS_DIR) != 0)
+        return 0;
+    return -1;
+}
+
+// 如果目录不存在则创建目录，成功返回0，失败返回-1
+static int mg_fs_mkdir_if_not_exists(struct mg_fs *fs, const char *path)
+{
+    if (mg_fs_dir_exists(fs, path) == 0)
+    {
+        return 0; // 目录已存在
+    }
+    if (fs->mkd == NULL)
+    {
+        return -1; // 不支持创建目录
+    }
+    if (fs->mkd(path))
+    {
+        return 0; // 创建成功
+    }
+    return -1; // 创建失败
+}
+
+// 保存文件到指定路径，成功返回0，失败返回-1
+static int mg_fs_save_file(struct mg_fs *fs, const char *filepath, const char *data, size_t len)
+{
+    struct mg_fd *fd = mg_fs_open(fs, filepath, MG_FS_WRITE);
+    if (fd == NULL)
+    {
+        return -1; // 打开文件失败
+    }
+    size_t written = fs->wr(fd->fd, data, len);
+    mg_fs_close(fd);
+    return (written == len) ? 0 : -1; // 判断写入是否完整
+}
+
+// 校验文件名是否合法，禁止包含路径分隔符和 ".."
+static int is_valid_filename(const char *filename)
+{
+    // 禁止包含路径分隔符和 ".."
+    if (strstr(filename, "..") != NULL)
+        return 0;
+    if (strchr(filename, '/') != NULL)
+        return 0;
+    if (strchr(filename, '\\') != NULL)
+        return 0;
+    return 1;
+}
+
+static int mg_vcmp(struct mg_str *a, const char *b)
+{
+    size_t len = strlen(b);
+    if (a->len != len)
+        return -1;
+    return memcmp(a->buf, b, len);
+}
+
+static int mg_fs_append_file(struct mg_fs *fs, const char *filepath, const char *data, size_t len)
+{
+    // 先打开文件，读取已有内容长度
+    size_t size;
+    time_t mtime;
+    int r = fs->st(filepath, &size, &mtime);
+    if (r <= 0)
+    {
+        // 文件不存在，直接写入新文件
+        return mg_fs_save_file(fs, filepath, data, len);
+    }
+
+    // 文件存在，打开文件写入（覆盖）
+    struct mg_fd *fd = mg_fs_open(fs, filepath, MG_FS_WRITE);
+    if (fd == NULL)
+    {
+        return -1;
+    }
+
+    // 先读取已有内容
+    char *buf = malloc(size + len);
+    if (!buf)
+    {
+        mg_fs_close(fd);
+        return -1;
+    }
+
+    size_t read_len = fs->rd(fd->fd, buf, size);
+    if (read_len != size)
+    {
+        free(buf);
+        mg_fs_close(fd);
+        return -1;
+    }
+
+    // 追加新数据
+    memcpy(buf + size, data, len);
+
+    // 重新写入全部数据
+    fs->wr(fd->fd, buf, size + len);
+
+    free(buf);
+    mg_fs_close(fd);
+
+    return 0;
+}
+
+// 处理文件上传请求
+static void handle_upload(struct mg_connection *c, struct mg_http_message *hm)
+{
+    chdir("D:\\workspace\\vscode_workspace\\vscode_normalcode\\");
+    struct mg_fs *fs = &mg_fs_posix;
+
+    // 解析multipart表单，提取字段
+    struct mg_http_part part;
+    size_t off = 0;
+
+    char saveDir[256] = {0};
+    char fileName[256] = {0};
+    char uploadId[256] = {0};
+    int chunkIndex = -1;
+    int totalChunks = -1;
+    const char *chunkData = NULL;
+    size_t chunkLen = 0;
+
+    // 遍历所有part
+    while ((off = mg_http_next_multipart(hm->body, off, &part)) != 0)
+    {
+        if (mg_vcmp(&part.name, "saveDir") == 0)
+        {
+            snprintf(saveDir, sizeof(saveDir), "%.*s", (int)part.body.len, part.body.buf);
+        }
+        else if (mg_vcmp(&part.name, "fileName") == 0)
+        {
+            snprintf(fileName, sizeof(fileName), "%.*s", (int)part.body.len, part.body.buf);
+        }
+        else if (mg_vcmp(&part.name, "uploadId") == 0)
+        {
+            snprintf(uploadId, sizeof(uploadId), "%.*s", (int)part.body.len, part.body.buf);
+        }
+        else if (mg_vcmp(&part.name, "chunkIndex") == 0)
+        {
+            char tmp[32] = {0};
+            snprintf(tmp, sizeof(tmp), "%.*s", (int)part.body.len, part.body.buf);
+            chunkIndex = atoi(tmp);
+        }
+        else if (mg_vcmp(&part.name, "totalChunks") == 0)
+        {
+            char tmp[32] = {0};
+            snprintf(tmp, sizeof(tmp), "%.*s", (int)part.body.len, part.body.buf);
+            totalChunks = atoi(tmp);
+        }
+        else if (mg_vcmp(&part.name, "chunk") == 0)
+        {
+            chunkData = part.body.buf;
+            chunkLen = part.body.len;
+        }
+    }
+
+    if (saveDir[0] == 0 || fileName[0] == 0 || uploadId[0] == 0 || chunkIndex < 0 || totalChunks < 0 || chunkData == NULL)
+    {
+        mg_http_reply(c, 400, "", "上传参数不完整\n");
+        return;
+    }
+
+    // 校验文件名
+    if (!is_valid_filename(fileName))
+    {
+        mg_http_reply(c, 400, "", "非法文件名\n");
+        return;
+    }
+
+    // 创建保存目录
+    if (mg_fs_mkdir_if_not_exists(fs, saveDir) != 0)
+    {
+        mg_http_reply(c, 500, "", "无法创建保存目录\n");
+        return;
+    }
+
+    // 临时文件名，避免多个上传冲突
+    char tmpFilePath[512];
+    snprintf(tmpFilePath, sizeof(tmpFilePath), "%s/%s_%s.tmp", saveDir, uploadId, fileName);
+
+    // 以追加方式打开临时文件
+    if (mg_fs_save_file(fs, tmpFilePath, chunkData, chunkLen))
+    {
+        mg_http_reply(c, 500, "", "写入文件失败\n");
+        return;
+    }
+
+    // 如果是最后一个块，重命名临时文件为正式文件名
+    if (chunkIndex == totalChunks - 1)
+    {
+        char finalFilePath[512];
+        snprintf(finalFilePath, sizeof(finalFilePath), "%s/%s", saveDir, fileName);
+
+        // 删除已有文件（如果存在）
+        fs->rm(finalFilePath);
+
+        if (!fs->mv(tmpFilePath, finalFilePath))
+        {
+            mg_http_reply(c, 500, "", "重命名文件失败\n");
+            return;
+        }
+
+        mg_http_reply(c, 200, "", "上传成功！\n");
+    }
+    else
+    {
+        // 还未完成所有块，返回继续上传
+        mg_http_reply(c, 200, "", "块上传成功\n");
+    }
+}
+
+static struct mg_str mg_http_get_mime(const char *path)
+{
+    const char *ext = strrchr(path, '.');
+    if (ext == NULL)
+    {
+        return mg_str("application/octet-stream");
+    }
+    ext++; // 跳过点号 '.'
+
+    if (strcasecmp(ext, "html") == 0 || strcasecmp(ext, "htm") == 0)
+    {
+        return mg_str("text/html");
+    }
+    else if (strcasecmp(ext, "css") == 0)
+    {
+        return mg_str("text/css");
+    }
+    else if (strcasecmp(ext, "js") == 0)
+    {
+        return mg_str("application/javascript");
+    }
+    else if (strcasecmp(ext, "json") == 0)
+    {
+        return mg_str("application/json");
+    }
+    else if (strcasecmp(ext, "png") == 0)
+    {
+        return mg_str("image/png");
+    }
+    else if (strcasecmp(ext, "jpg") == 0 || strcasecmp(ext, "jpeg") == 0)
+    {
+        return mg_str("image/jpeg");
+    }
+    else if (strcasecmp(ext, "gif") == 0)
+    {
+        return mg_str("image/gif");
+    }
+    else if (strcasecmp(ext, "svg") == 0)
+    {
+        return mg_str("image/svg+xml");
+    }
+    else if (strcasecmp(ext, "txt") == 0)
+    {
+        return mg_str("text/plain");
+    }
+    else if (strcasecmp(ext, "pdf") == 0)
+    {
+        return mg_str("application/pdf");
+    }
+    else if (strcasecmp(ext, "zip") == 0)
+    {
+        return mg_str("application/zip");
+    }
+    else
+    {
+        return mg_str("application/octet-stream");
+    }
+}
+
+static void handle_static_file(struct mg_connection *c, struct mg_http_message *hm)
+{
+    struct mg_fs *fs = &mg_fs_posix;
+    const char *base_dir = "frontend"; // 静态文件根目录
+    chdir("D:\\workspace\\vscode_workspace\\vscode_normalcode\\");
+
+    // 先把 hm->uri 复制到缓冲区，添加 \0
+    char uri_buf[512];
+    if (hm->uri.len >= sizeof(uri_buf))
+    {
+        mg_http_reply(c, 414, "", "URI Too Long\n");
+        return;
+    }
+    memcpy(uri_buf, hm->uri.buf, hm->uri.len);
+    uri_buf[hm->uri.len] = '\0';
+
+    // 确认以 "/static/" 开头
+    const char *prefix = "/static/";
+    size_t prefix_len = strlen(prefix);
+    if (strncmp(uri_buf, prefix, prefix_len) != 0)
+    {
+        mg_http_reply(c, 400, "", "Bad Request\n");
+        return;
+    }
+
+    // 取出相对路径部分
+    const char *rel_path = uri_buf + prefix_len;
+    if (strlen(rel_path) == 0)
+    {
+        mg_http_reply(c, 400, "", "文件路径不能为空\n");
+        return;
+    }
+
+    // 路径安全检查，禁止目录穿越
+    if (strstr(rel_path, "..") != NULL)
+    {
+        mg_http_reply(c, 400, "", "非法文件路径\n");
+        return;
+    }
+
+    // 构造完整文件路径
+    char file_path[512];
+    snprintf(file_path, sizeof(file_path), "%s/%s", base_dir, rel_path);
+
+    // 打开文件
+    struct mg_fd *fd = mg_fs_open(fs, file_path, MG_FS_READ);
+    if (fd == NULL)
+    {
+        mg_http_reply(c, 404, "", "文件未找到\n");
+        return;
+    }
+
+    // 获取文件大小和修改时间
+    size_t size;
+    time_t mtime;
+    if (fs->st(file_path, &size, &mtime) < 0)
+    {
+        mg_fs_close(fd);
+        mg_http_reply(c, 500, "", "无法获取文件信息\n");
+        return;
+    }
+
+    if (size > MAX_UPLOAD_SIZE)
+    {
+        mg_fs_close(fd);
+        mg_http_reply(c, 413, "", "文件过大\n");
+        return;
+    }
+
+    // 读取文件内容
+    char *buf = malloc(size);
+    if (!buf)
+    {
+        mg_fs_close(fd);
+        mg_http_reply(c, 500, "", "内存不足\n");
+        return;
+    }
+
+    size_t n = fs->rd(fd->fd, buf, size);
+    mg_fs_close(fd);
+    if (n != size)
+    {
+        free(buf);
+        mg_http_reply(c, 500, "", "读取文件失败\n");
+        return;
+    }
+
+    // 根据文件扩展名返回Content-Type
+    struct mg_str mime = mg_http_get_mime(file_path);
+
+    // 返回文件内容
+    mg_printf(c,
+              "HTTP/1.1 200 OK\r\n"
+              "Content-Type: %.*s\r\n"
+              "Content-Length: %ld\r\n"
+              "Connection: close\r\n"
+              "\r\n",
+              (int)mime.len, mime.buf, size);
+
+    mg_send(c, buf, size);
+
+    free(buf);
+}
+
+struct ws_conn_node
+{
+    struct mg_connection *conn;
+    struct ws_conn_node *next;
+};
+
+static struct ws_conn_node *ws_conn_list = NULL;
+
+// 添加连接到列表
+static void ws_conn_add(struct mg_connection *c)
+{
+    struct ws_conn_node *node = malloc(sizeof(*node));
+    if (node == NULL)
+        return;
+    node->conn = c;
+    node->next = ws_conn_list;
+    ws_conn_list = node;
+}
+
+// 从列表删除连接
+static void ws_conn_remove(struct mg_connection *c)
+{
+    struct ws_conn_node **p = &ws_conn_list;
+    while (*p)
+    {
+        if ((*p)->conn == c)
+        {
+            struct ws_conn_node *to_free = *p;
+            *p = (*p)->next;
+            free(to_free);
+            return;
+        }
+        p = &(*p)->next;
+    }
+}
+
+// 向所有连接广播消息
+static void ws_broadcast(const char *msg, size_t len)
+{
+    struct ws_conn_node *node = ws_conn_list;
+    while (node)
+    {
+        mg_ws_send(node->conn, msg, len, WEBSOCKET_OP_TEXT);
+        node = node->next;
+    }
+}
+
+// 连接事件处理函数，处理HTTP请求、WebSocket连接及消息等
+static void fn(struct mg_connection *c, int ev, void *ev_data)
+{
+    switch (ev)
+    {
+    case MG_EV_HTTP_MSG:
+    {
+        struct mg_http_message *hm = (struct mg_http_message *)ev_data;
+        if (mg_match(hm->uri, mg_str("/"), NULL))
+        {
+            // 访问根路径，返回HTML页面
+            char response[10240];
+            char response1[10240];
+            int len = snprintf(response, sizeof(response), html_page_inputandview, strlen(css_style_inputandview), css_style_inputandview);
+            len = snprintf(response1, sizeof(response1), head_fmt, len, response);
+            mg_send(c, response1, len);
+        }
+        else if (mg_match(hm->uri, mg_str("/ws"), NULL))
+        {
+            // WebSocket升级请求
+            mg_ws_upgrade(c, hm, NULL); // 关键：升级为WebSocket连接
+        }
+        else if (mg_match(hm->uri, mg_str("/upload"), NULL))
+        {
+            // 只接受POST请求上传文件
+            if (0 == mg_strcmp(hm->method, mg_str("POST")))
+            {
+                handle_upload(c, hm);
+            }
+            else
+            {
+                mg_http_reply(c, 405, "", "Method Not Allowed\n");
+            }
+        }
+        else if (mg_match(hm->uri, mg_str("/ftp"), NULL))
+        {
+            char response[4096];
+            int len = snprintf(response, sizeof(response), head_fmt, strlen(html_page_ftp), html_page_ftp);
+            mg_send(c, response, len);
+        }
+        else if (mg_match(hm->uri, mg_str("/static/#"), NULL))
+        {
+            handle_static_file(c, hm);
+        }
+        else if (mg_match(hm->uri, mg_str("/api/echo"), NULL))
+        {
+            mg_http_reply(c, 200,"Access-Control-Allow-Origin: *\r\n","%.*s",hm->body.len,hm->body.buf);
+        }
+        else if (mg_match(hm->uri, mg_str("/api/echo1"), NULL))
+        {
+            mg_http_reply(c, 200,"Access-Control-Allow-Origin: *\r\n","%.*s",hm->body.len,hm->body.buf);
+        }
+        else if (mg_match(hm->uri, mg_str("/api/echo2"), NULL))
+        {
+            mg_http_reply(c, 200,"Access-Control-Allow-Origin: *\r\n","%.*s",hm->body.len,hm->body.buf);
+        }
+        else
+        {
+            // 其他路径返回404
+            mg_http_reply(c, 404, "", "Not Found\n");
+        }
+        break;
+    }
+    case MG_EV_WS_OPEN:
+        ws_conn_add(c);
+        printf("WebSocket连接已建立\n");
+        break;
+    case MG_EV_WS_MSG:
+    {
+        // 收到WebSocket消息，处理客户端发送的命令
+        struct mg_ws_message *wm = (struct mg_ws_message *)ev_data;
+        // 申请缓冲区，拷贝消息并添加字符串结束符
+        char *msg = malloc(wm->data.len + 1);
+        if (msg == NULL)
+        {
+            // 内存不足，发送错误消息
+            const char *err = "服务器内存不足\n";
+            struct mg_str err_str = {(char *)err, strlen(err)};
+            mg_ws_send(c, err_str.buf, err_str.len, WEBSOCKET_OP_TEXT);
+            break;
+        }
+        memcpy(msg, wm->data.buf, wm->data.len);
+        msg[wm->data.len] = '\0'; // 转成C字符串
+
+        printf("收到客户端命令: %s\n", msg);
+
+        // TODO: 这里可以添加命令执行逻辑，并通过WebSocket发送结果给客户端
+
+        free(msg);
+        break;
+    }
+    case MG_EV_CLOSE:
+        ws_conn_remove(c);
+        printf("WebSocket连接已关闭\n");
+        break;
+    }
+}
+
+void send_tagged_data(struct mg_connection *ws_conn)
+{
+    /*
+        {
+            "type": "data",           // 消息类型，固定为 "data"
+            "label": "temperature",   // 数据标签，标识数据类别
+            "value": 23.5             // 数据值，数值或数组
+        }
+    */
+    if (ws_conn == NULL)
+        return;
+
+    time_t now = time(NULL);
+    char buf[256];
+
+    // 示例：发送温度数据
+    float temperature = 23.5; // 这里用实际采集数据替代
+    int len = snprintf(buf, sizeof(buf),
+                       "{\"type\":\"data\",\"label\":\"temperature\",\"timestamp\":%ld,\"value\":%.2f}",
+                       now, temperature);
+    mg_ws_send(ws_conn, buf, len, WEBSOCKET_OP_TEXT);
+
+    // 示例：发送湿度数据
+    float humidity = 60.2;
+    len = snprintf(buf, sizeof(buf),
+                   "{\"type\":\"data\",\"label\":\"humidity\",\"timestamp\":%ld,\"value\":%.2f}",
+                   now, humidity);
+    mg_ws_send(ws_conn, buf, len, WEBSOCKET_OP_TEXT);
+}
+
+// 向所有WebSocket客户端广播一条文本消息（类似串口打印）
+void ws_broadcast_text(const char *text)
+{
+    if (text == NULL)
+        return;
+    ws_broadcast(text, strlen(text));
+}
+
+// 向所有WebSocket客户端广播格式化文本消息
+void ws_broadcast_printf(const char *fmt, ...)
+{
+    char buf[512];
+    va_list args;
+    va_start(args, fmt);
+    int len = vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+
+    if (len > 0)
+    {
+        if (len > (int)sizeof(buf))
+            len = sizeof(buf);
+        ws_broadcast(buf, len);
+    }
+}
+
+// 发送单条数据，label为标签，value为数值
+void ws_send_data(const char *label, float value)
+{
+    if (label == NULL)
+        return;
+
+    char buf[256];
+    int len = snprintf(buf, sizeof(buf),
+                       "{\"type\":\"data\",\"label\":\"%s\",\"value\":%.2f}",
+                       label, value);
+    if (len > 0)
+    {
+        ws_broadcast(buf, len);
+    }
+}
+
+// 发送缓冲区结构体
+typedef struct
+{
+    char *buf;       // 动态分配的缓冲区指针，用于存储待发送的JSON字符串数据
+    size_t capacity; // 缓冲区的总容量（字节数），表示buf当前分配的内存大小
+    size_t length;   // 当前缓冲区中已使用的长度（字节数），即buf中有效数据的长度
+    int open_array;  // 标志位，表示是否已经开始了一个JSON数组（即是否已写入了'['）
+    mutex_t mutex;   // 互斥锁，用于保护缓冲区的多线程访问，保证线程安全
+} send_buffer_t;
+
+#define INITIAL_CAPACITY 4096
+
+// 初始化缓冲区
+void send_buffer_init(send_buffer_t *sb)
+{
+    sb->buf = malloc(INITIAL_CAPACITY);
+    sb->capacity = sb->buf ? INITIAL_CAPACITY : 0;
+    sb->length = 0;
+    sb->open_array = 0;
+    mutex_init(&sb->mutex);
+}
+
+// 释放缓冲区
+void send_buffer_free(send_buffer_t *sb)
+{
+    if (sb->buf)
+        free(sb->buf);
+    mutex_destroy(&sb->mutex);
+    sb->buf = NULL;
+    sb->capacity = 0;
+    sb->length = 0;
+    sb->open_array = 0;
+}
+
+// 确保缓冲区容量足够，失败返回0，成功返回1
+int send_buffer_ensure_capacity(send_buffer_t *sb, size_t add_len)
+{
+    if (sb->length + add_len >= sb->capacity)
+    {
+        size_t new_capacity = sb->capacity * 2;
+        while (new_capacity < sb->length + add_len)
+        {
+            new_capacity *= 2;
+        }
+        char *new_buf = realloc(sb->buf, new_capacity);
+        if (!new_buf)
+            return 0;
+        sb->buf = new_buf;
+        sb->capacity = new_capacity;
+    }
+    return 1;
+}
+
+// 开始JSON数组，线程安全
+void send_buffer_start(send_buffer_t *sb)
+{
+    mutex_lock(&sb->mutex);
+    sb->length = 0;
+    sb->open_array = 1;
+    if (sb->capacity < 2)
+    {
+        char *new_buf = realloc(sb->buf, 2);
+        if (new_buf)
+        {
+            sb->buf = new_buf;
+            sb->capacity = 2;
+        }
+    }
+    if (sb->buf)
+    {
+        sb->buf[0] = '[';
+        sb->length = 1;
+    }
+    mutex_unlock(&sb->mutex);
+}
+
+// 结束JSON数组，线程安全
+void send_buffer_end(send_buffer_t *sb)
+{
+    mutex_lock(&sb->mutex);
+    if (!sb->open_array)
+    {
+        mutex_unlock(&sb->mutex);
+        return;
+    }
+    // 去掉最后一个逗号
+    if (sb->length > 1 && sb->buf[sb->length - 1] == ',')
+    {
+        sb->length--;
+    }
+    if (sb->length + 1 >= sb->capacity)
+    {
+        char *new_buf = realloc(sb->buf, sb->capacity + 1);
+        if (new_buf)
+        {
+            sb->buf = new_buf;
+            sb->capacity += 1;
+        }
+    }
+    sb->buf[sb->length++] = ']';
+    sb->buf[sb->length] = '\0';
+    sb->open_array = 0;
+    mutex_unlock(&sb->mutex);
+}
+
+// 向缓冲区添加一条JSON数据对象，格式如 {"type":"data","label":"temperature","value":23.5},
+// 传入时间戳time_ms（毫秒），返回1成功，0失败
+int send_buffer_add_data(send_buffer_t *sb, const char *label, uint64_t time_ms, float value)
+{
+    char item[512];
+    int len = snprintf(item, sizeof(item),
+                       "{\"type\":\"data\",\"label\":\"%s\",\"time\":%lu,\"value\":%.2f},",
+                       label, time_ms, value);
+
+    if (len <= 0 || len >= (int)sizeof(item))
+        return 0;
+
+    mutex_lock(&sb->mutex);
+    if (!sb->open_array)
+    {
+        // 如果没开始，先开始
+        send_buffer_start(sb);
+    }
+    if (!send_buffer_ensure_capacity(sb, (size_t)len))
+    {
+        mutex_unlock(&sb->mutex);
+        return 0;
+    }
+    memcpy(sb->buf + sb->length, item, len);
+    sb->length += len;
+    mutex_unlock(&sb->mutex);
+    return 1;
+}
+
+// 发送缓冲区数据给所有客户端，发送后清空缓冲区，线程安全
+void send_buffer_flush(send_buffer_t *sb)
+{
+    mutex_lock(&sb->mutex);
+    if (sb->length == 0)
+    {
+        mutex_unlock(&sb->mutex);
+        return;
+    }
+    if (sb->open_array)
+    {
+        // 结束JSON数组
+        if (sb->length > 1 && sb->buf[sb->length - 1] == ',')
+        {
+            sb->length--;
+        }
+        if (sb->length + 1 >= sb->capacity)
+        {
+            char *new_buf = realloc(sb->buf, sb->capacity + 1);
+            if (new_buf)
+            {
+                sb->buf = new_buf;
+                sb->capacity += 1;
+            }
+        }
+        sb->buf[sb->length++] = ']';
+        sb->buf[sb->length] = '\0';
+        sb->open_array = 0;
+    }
+    else
+    {
+        // 确保字符串结束
+        if (sb->length >= sb->capacity)
+        {
+            char *new_buf = realloc(sb->buf, sb->capacity + 1);
+            if (new_buf)
+            {
+                sb->buf = new_buf;
+                sb->capacity += 1;
+            }
+        }
+        sb->buf[sb->length] = '\0';
+    }
+
+    // 复制一份数据，避免发送时缓冲区被修改
+    char *send_data = malloc(sb->length + 1);
+    if (send_data)
+    {
+        memcpy(send_data, sb->buf, sb->length + 1);
+    }
+    // 清空缓冲区
+    sb->length = 0;
+    sb->open_array = 0;
+    mutex_unlock(&sb->mutex);
+
+    if (send_data)
+    {
+        // 这里调用你已有的广播函数，向所有WebSocket客户端发送数据
+        ws_broadcast(send_data, strlen(send_data));
+        free(send_data);
+    }
+}
+
+// void example_usage()
+// {
+//     // 发送普通文本
+//     ws_broadcast_text("Hello from server!\n");
+
+//     // 发送格式化文本
+//     ws_broadcast_printf("Temperature is %.2f C\n", 23.5f);
+
+//     // 发送结构化数据
+//     ws_send_data("temperature", 23.5f);
+//     ws_send_data("humidity", 60.2f);
+// }
+
+// 定时器回调函数，每2秒调用一次，向所有WebSocket客户端发送批量数据
+static void timer_cb(void *arg)
+{
+    send_buffer_t *sb = (send_buffer_t *)arg;
+
+    // 模拟采集数据，追加到缓冲区
+    time_t now_sec = time(NULL);
+    uint64_t now_ms = (uint64_t)now_sec * 1000;
+
+    // 发送温度数据
+    send_buffer_add_data(sb, "temperature", now_ms, 23.5f);
+
+    // 发送湿度数据
+    send_buffer_add_data(sb, "humidity", now_ms, 60.2f);
+
+    // 发送湿度数据
+    send_buffer_add_data(sb, "haha", now_ms, 65537.2f);
+
+    // 如果缓冲区数据超过一定大小，立即发送
+    mutex_lock(&sb->mutex);
+    size_t len = sb->length;
+    mutex_unlock(&sb->mutex);
+
+    if (len > sb->capacity / 6)
+    {
+        send_buffer_flush(sb);
+    }
+}
+
+struct mg_connection *pcConn_send; // 未使用的连接指针变量，保留
+
+int main()
+{
+    struct mg_fs *fs = &mg_fs_posix;
+    struct mg_mgr mgr;                                     // Mongoose事件管理器，管理所有连接
+    mg_mgr_init(&mgr);                                     // 初始化事件管理器
+    mg_http_listen(&mgr, "http://0.0.0.0:80", fn, NULL); // 监听0.0.0.0:8000端口，绑定事件处理函数fn
+
+    // 初始化发送缓冲区
+    static send_buffer_t send_buf;
+    send_buffer_init(&send_buf);
+
+    // 初始化定时器，周期2秒，重复调用timer_cb函数
+    mg_timer_add(&mgr, 500, MG_TIMER_REPEAT, timer_cb, &send_buf);
+    for (;;)
+    {
+        mg_mgr_poll(&mgr, 1000); // 事件循环，等待并处理事件，超时1000ms
+    }
+
+    send_buffer_free(&send_buf);
+    return 0;
+}

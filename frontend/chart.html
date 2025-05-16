@@ -2,274 +2,766 @@
 <html lang="zh-CN">
 
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>实时数据图表 - 时间戳横轴示例</title>
-  <!-- Chart.js -->
-  <script src="chart.umd.min.js"></script>
-  <!-- 日期适配器 -->
-  <script src="chartjs-adapter-date-fns.bundle.min.js"></script>
-  <!-- 缩放插件 -->
-  <script src="chartjs-plugin-zoom.min.js"></script>
-  <style>
-    body {
-      margin: 0;
-      padding: 0;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background: linear-gradient(135deg, #a3bffa, #c1d4ff);
-      height: 100vh;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-    }
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>实时数据图表 - 时间戳横轴示例</title>
+    <!-- Chart.js -->
+    <script src="chart.umd.min.js"></script>
+    <!-- 日期适配器 -->
+    <script src="chartjs-adapter-date-fns.bundle.min.js"></script>
+    <!-- 缩放插件 -->
+    <script src="chartjs-plugin-zoom.min.js"></script>
+    <style>
+        /* 页面整体字体和背景 */
+        body {
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f2f5;
+            color: #1f2a56;
+            margin: 0;
+            padding: 20px;
+        }
 
-    .container {
-      background: #f8fbff;
-      border-radius: 20px;
-      box-shadow: 0 16px 40px rgba(0, 0, 50, 0.12);
-      padding: 32px 48px;
-      max-width: 900px;
-      width: 90vw;
-      box-sizing: border-box;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
+        /* 省略之前的样式，保持不变 */
 
-    h1 {
-      color: #1f2a56;
-      font-size: 2rem;
-      font-weight: 700;
-      margin-bottom: 24px;
-      user-select: none;
-    }
+        /* 新增自定义图例样式 */
+        #customLegend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            justify-content: center;
+            margin-bottom: 12px;
+            user-select: none;
+        }
 
-    /* 横向滚动容器 */
-    .chart-wrapper {
-      width: 100%;
-      overflow-x: auto;
-      border-radius: 16px;
-      box-shadow: inset 0 0 20px #cbd6f2;
-      background: #e6ecf8;
-    }
+        #customLegend div {
+            font-size: 16px;
+            color: #333;
+            padding: 4px 8px;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            user-select: none;
+        }
 
-    /* 画布宽度设置大于容器宽度，支持横向滚动 */
-    canvas#chart {
-      display: block;
-      height: 420px !important;
-      width: 1600px !important;
-      border-radius: 16px;
-    }
+        #customLegend div:hover {
+            background-color: #e0e0e0;
+        }
 
-    .description {
-      margin-top: 24px;
-      font-size: 1.1rem;
-      color: #4a557a;
-      user-select: none;
-      text-align: center;
-      max-width: 600px;
-      font-weight: 500;
-    }
-  </style>
+        /* 新增阈值配置区域样式 */
+        #thresholdConfig {
+            max-width: 600px;
+            margin: 0 auto 12px auto;
+            padding: 12px;
+            border: 2px solid #1f2a56;
+            border-radius: 4px;
+            background-color: #fff;
+            box-shadow: 0 0 8px rgba(31, 42, 86, 0.2);
+        }
+
+        #thresholdConfig h3 {
+            margin-top: 0;
+            font-weight: 600;
+            color: #1f2a56;
+        }
+
+        #thresholdList>div {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 4px;
+        }
+
+        #thresholdList input[type="number"] {
+            width: 80px;
+            padding: 2px 4px;
+        }
+
+        #thresholdConfig input[type="text"],
+        #thresholdConfig input[type="number"],
+        #thresholdConfig select {
+            padding: 4px 6px;
+            font-size: 14px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            transition: border-color 0.3s;
+        }
+
+        #thresholdConfig input[type="text"]:focus,
+        #thresholdConfig input[type="number"]:focus,
+        #thresholdConfig select:focus {
+            border-color: #3a4a8f;
+            outline: none;
+        }
+
+        #thresholdConfig button {
+            padding: 6px 14px;
+            font-size: 14px;
+            cursor: pointer;
+            background-color: #1f2a56;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            transition: background-color 0.3s ease;
+        }
+
+        #thresholdConfig button:hover {
+            background-color: #3a4a8f;
+        }
+
+        /* 控制按钮样式 */
+        button {
+            background-color: #1f2a56;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 6px 12px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+            font-family: inherit;
+        }
+
+        button:hover {
+            background-color: #3a4a8f;
+        }
+
+        button:disabled {
+            background-color: #999;
+            cursor: not-allowed;
+        }
+
+        /* 图表容器 */
+        .chart-wrapper {
+            width: 100%;
+            max-width: 100%;
+            overflow-x: auto;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background-color: white;
+        }
+
+        /* 响应式调整 */
+        @media (max-width: 768px) {
+            #chart {
+                width: 100% !important;
+                height: 450px !important;
+            }
+
+            #thresholdConfig,
+            /* 移除alertArea相关 */
+            #alertArea {
+                max-width: 100%;
+                margin: 0 10px 12px 10px;
+            }
+        }
+
+        /* 新增模态弹窗样式 */
+        #alertModal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+        }
+
+        #alertModalContent {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            max-width: 400px;
+            width: 90%;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+            text-align: center;
+        }
+
+        #alertModalContent h3 {
+            margin-top: 0;
+            color: #c0392b;
+        }
+
+        #alertModalContent p {
+            font-weight: 600;
+            margin: 16px 0;
+        }
+
+        #alertModalCloseBtn {
+            background: #c0392b;
+            color: #fff;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        #alertModalCloseBtn:hover {
+            background: #a8322a;
+        }
+    </style>
 </head>
 
 <body>
-  <div class="container">
-    <h1>实时数据图表（时间戳横轴 + 缩放）</h1>
-    <div class="chart-wrapper">
-      <canvas id="chart" width="1600" height="420"></canvas>
+    <div class="container">
+        <h1>实时数据图表（时间戳横轴 + 缩放）</h1>
+
+        <!-- 新增阈值配置区域 -->
+        <div id="thresholdConfig">
+            <h3>阈值配置（标签名、判断条件和阈值）</h3>
+            <div id="thresholdList"></div>
+            <input type="text" id="newLabel" placeholder="标签名" />
+            <select id="newCondition" title="选择判断条件">
+                <option value="gt">&gt; 大于</option>
+                <option value="lt">&lt; 小于</option>
+                <option value="eq">= 等于</option>
+            </select>
+            <input type="number" id="newThreshold" placeholder="阈值" />
+            <button id="addThresholdBtn">添加/更新阈值</button>
+        </div>
+
+        <!-- 自定义图例区域 -->
+        <div id="customLegend"></div>
+
+        <!-- 控制按钮 -->
+        <div class="controls"
+            style="max-width:600px; margin: 0 auto 12px auto; display:flex; gap:8px; flex-wrap: wrap; justify-content: center;">
+            <button id="resetZoomBtn" title="重置缩放和平移">重置缩放</button>
+            <button id="exportPngBtn" title="导出图表为PNG图片">导出PNG</button>
+
+            <!-- 时间范围选择 -->
+            <button class="timeRangeBtn" data-minutes="1" title="显示最近1分钟数据">最近1分钟</button>
+            <button class="timeRangeBtn" data-minutes="5" title="显示最近5分钟数据">最近5分钟</button>
+            <button class="timeRangeBtn" data-minutes="15" title="显示最近15分钟数据">最近15分钟</button>
+            <button class="timeRangeBtn" data-minutes="0" title="显示所有数据">全部数据</button>
+        </div>
+
+        <!-- 连接状态 -->
+        <div id="connectionStatus" style="max-width:600px; margin: 0 auto 12px auto; font-weight: 600;">
+            WebSocket 状态：<span id="wsStatus">未连接</span>
+        </div>
+
+        <div class="chart-wrapper" id="chartWrapper">
+            <canvas id="chart" width="1600" height="600"></canvas>
+        </div>
+        <div class="description" style="max-width:600px; margin: 8px auto; color:#555;">
+            横轴为时间，支持横向滚动和鼠标缩放/拖动查看数据。<br />
+            按住 Ctrl 键拖动可平移图表。
+        </div>
+
+        <!-- 新增模态弹窗 -->
+        <div id="alertModal">
+            <div id="alertModalContent">
+                <h3>阈值警告</h3>
+                <p id="alertModalMessage"></p>
+                <button id="alertModalCloseBtn">关闭</button>
+            </div>
+        </div>
     </div>
-    <div class="description">
-      横轴为时间，支持横向滚动和鼠标缩放/拖动查看数据。
-    </div>
-  </div>
 
-  <script>
-    // 注册缩放插件
-    Chart.register(ChartZoom);
+    <script>
+        // 注册缩放插件
+        Chart.register(ChartZoom);
 
-    const ctx = document.getElementById('chart').getContext('2d');
+        const ctx = document.getElementById('chart').getContext('2d');
+        const chartWrapper = document.getElementById('chartWrapper');
+        const customLegendContainer = document.getElementById('customLegend');
 
-    const datasets = {};
+        // 新增阈值配置相关元素
+        const thresholdListEl = document.getElementById('thresholdList');
+        const newLabelInput = document.getElementById('newLabel');
+        const newConditionSelect = document.getElementById('newCondition');
+        const newThresholdInput = document.getElementById('newThreshold');
+        const addThresholdBtn = document.getElementById('addThresholdBtn');
 
-    const chart = new Chart(ctx, {
-      type: 'line',
-      data: {
-        datasets: []
-      },
-      options: {
-        responsive: false, // 关闭响应式，使用固定宽度画布
-        animation: {
-          duration: 600,
-          easing: 'easeOutQuart'
-        },
-        interaction: {
-          mode: 'nearest',
-          intersect: false
-        },
-        plugins: {
-          legend: {
-            position: 'top',
-            labels: {
-              font: { size: 15 },
-              color: '#1f2a56'
+        // 模态弹窗元素
+        const alertModal = document.getElementById('alertModal');
+        const alertModalMessage = document.getElementById('alertModalMessage');
+        const alertModalCloseBtn = document.getElementById('alertModalCloseBtn');
+
+        // 存储所有数据集，方便动态操作
+        const datasets = {};
+
+        // 创建一个 Chart.js 折线图实例
+        const chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                datasets: []
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: {
+                            unit: 'minute'
+                        },
+                        ticks: {
+                            maxRotation: 0
+                        }
+                    },
+                    y: {
+                        beginAtZero: true
+                    }
+                },
+                plugins: {
+                    zoom: {
+                        zoom: {
+                            wheel: {
+                                enabled: true
+                            },
+                            pinch: {
+                                enabled: true
+                            },
+                            mode: 'x',
+                        },
+                        pan: {
+                            enabled: true,
+                            mode: 'x',
+                            modifierKey: 'ctrl'
+                        }
+                    }
+                }
             }
-          },
-          tooltip: {
-            enabled: true,
-            mode: 'nearest',
-            intersect: false,
-            backgroundColor: 'rgba(31, 42, 86, 0.9)',
-            titleFont: { size: 15 },
-            bodyFont: { size: 14 },
-            padding: 10,
-            cornerRadius: 8
-          },
-          zoom: {
-            pan: {
-              enabled: true,
-              mode: 'x',
-              modifierKey: 'ctrl', // 按住Ctrl键拖动平移
-            },
-            zoom: {
-              wheel: {
-                enabled: true,
-              },
-              pinch: {
-                enabled: true
-              },
-              mode: 'x',
-            }
-          }
-        },
-        scales: {
-          x: {
-            type: 'time',
-            time: {
-              tooltipFormat: 'HH:mm:ss',
-              unit: 'second',
-              displayFormats: {
-                second: 'HH:mm:ss',
-                minute: 'HH:mm',
-                hour: 'HH:mm'
-              }
-            },
-            title: {
-              display: true,
-              text: '时间',
-              color: '#1f2a56',
-              font: { size: 17, weight: '600' }
-            },
-            ticks: {
-              color: '#4a557a',
-              maxTicksLimit: 20
-            },
-            beginAtZero: false
-          },
-          y: {
-            beginAtZero: false,
-            title: {
-              display: true,
-              text: '数值',
-              color: '#1f2a56',
-              font: { size: 17, weight: '600' }
-            },
-            ticks: { color: '#4a557a' },
-            grid: { color: '#d1d9f0' }
-          }
+        });
+
+        // 当前时间范围过滤分钟数，0表示不限制
+        let currentTimeRangeMinutes = 0;
+
+        /**
+         * alertThresholds 格式调整为：
+         * {
+         *   label1: { condition: 'gt'|'lt'|'eq', value: number },
+         *   label2: { condition: 'gt'|'lt'|'eq', value: number },
+         *   ...
+         * }
+         */
+        let alertThresholds = JSON.parse(localStorage.getItem('alertThresholds') || '{}');
+
+        // 保存阈值配置到localStorage
+        function saveThresholds() {
+            localStorage.setItem('alertThresholds', JSON.stringify(alertThresholds));
         }
-      }
-    });
 
-    // 生成随机颜色
-    function getRandomColor() {
-      const r = Math.floor(Math.random() * 200) + 30;
-      const g = Math.floor(Math.random() * 200) + 30;
-      const b = Math.floor(Math.random() * 200) + 30;
-      return `rgba(${r},${g},${b},1)`;
-    }
+        // 渲染阈值列表
+        function renderThresholdList() {
+            thresholdListEl.innerHTML = '';
+            for (const label in alertThresholds) {
+                const { condition, value } = alertThresholds[label];
+                const item = document.createElement('div');
 
-    // 处理单条数据点，x轴用服务器时间戳（毫秒）代替序号
-    function handleDataPoint(msg) {
-      if (!datasets[msg.label]) {
-        const color = getRandomColor();
-        const newDataset = {
-          label: msg.label,
-          data: [],
-          borderColor: color,
-          backgroundColor: color,
-          fill: false,
-          tension: 0.3,
-          pointRadius: 3,
-          pointHoverRadius: 6,
+                const labelSpan = document.createElement('span');
+                labelSpan.textContent = label;
+                labelSpan.style.flex = '1';
+
+                const conditionSelect = document.createElement('select');
+                conditionSelect.style.width = '80px';
+                const options = [
+                    { val: 'gt', text: '>' },
+                    { val: 'lt', text: '<' },
+                    { val: 'eq', text: '=' }
+                ];
+                options.forEach(opt => {
+                    const optionEl = document.createElement('option');
+                    optionEl.value = opt.val;
+                    optionEl.textContent = opt.text;
+                    if (opt.val === condition) optionEl.selected = true;
+                    conditionSelect.appendChild(optionEl);
+                });
+
+                conditionSelect.onchange = () => {
+                    alertThresholds[label].condition = conditionSelect.value;
+                    saveThresholds();
+                };
+
+                const thresholdInput = document.createElement('input');
+                thresholdInput.type = 'number';
+                thresholdInput.value = value;
+                thresholdInput.style.width = '80px';
+
+                thresholdInput.onchange = () => {
+                    const val = parseFloat(thresholdInput.value);
+                    if (!isNaN(val)) {
+                        alertThresholds[label].value = val;
+                        saveThresholds();
+                    }
+                };
+
+                const delBtn = document.createElement('button');
+                delBtn.textContent = '删除';
+                delBtn.onclick = () => {
+                    delete alertThresholds[label];
+                    saveThresholds();
+                    renderThresholdList();
+                };
+
+                item.appendChild(labelSpan);
+                item.appendChild(conditionSelect);
+                item.appendChild(thresholdInput);
+                item.appendChild(delBtn);
+
+                thresholdListEl.appendChild(item);
+            }
+        }
+
+        addThresholdBtn.onclick = () => {
+            const label = newLabelInput.value.trim();
+            const condition = newConditionSelect.value;
+            const threshold = parseFloat(newThresholdInput.value);
+            if (!label) {
+                alert('请输入标签名');
+                return;
+            }
+            if (isNaN(threshold)) {
+                alert('请输入有效的阈值');
+                return;
+            }
+            alertThresholds[label] = { condition, value: threshold };
+            saveThresholds();
+            renderThresholdList();
+            newLabelInput.value = '';
+            newThresholdInput.value = '';
+            newConditionSelect.value = 'gt';
         };
-        datasets[msg.label] = newDataset;
-        chart.data.datasets.push(newDataset);
-      }
 
-      const dataSet = datasets[msg.label];
+        // 初始化时渲染阈值列表
+        renderThresholdList();
 
-      // 这里假设 msg.time 是毫秒级时间戳，如果是秒级请乘以1000
-      const timeValue = typeof msg.time === 'number' ? msg.time : Date.now();
-
-      dataSet.data.push({ x: timeValue, y: msg.value });
-
-      // 限制数据点数量，避免内存和性能问题
-      if (dataSet.data.length > 200) {
-        dataSet.data.shift();
-      }
-
-      chart.update('none'); // 使用无动画更新，提升性能
-    }
-
-    // WebSocket连接
-    const ws = new WebSocket(`ws://${location.host}/ws`);
-
-    ws.onopen = () => {
-      console.log('WebSocket连接已建立');
-    };
-
-    ws.onclose = () => {
-      console.log('WebSocket连接已关闭');
-    };
-
-    ws.onmessage = event => {
-      try {
-        const msgs = JSON.parse(event.data);
-
-        if (Array.isArray(msgs)) {
-          msgs.forEach(msg => {
-            if (
-              msg.type === 'data' &&
-              typeof msg.label === 'string' &&
-              msg.label.length > 0 &&
-              typeof msg.value === 'number' &&
-              (typeof msg.time === 'number' || typeof msg.timestamp === 'number')
-            ) {
-              // 兼容 time 或 timestamp 字段
-              if (typeof msg.time !== 'number' && typeof msg.timestamp === 'number') {
-                msg.time = msg.timestamp;
-              }
-              handleDataPoint(msg);
-            }
-          });
-        } else if (
-          msgs.type === 'data' &&
-          typeof msgs.label === 'string' &&
-          msgs.label.length > 0 &&
-          typeof msgs.value === 'number' &&
-          (typeof msgs.time === 'number' || typeof msgs.timestamp === 'number')
-        ) {
-          if (typeof msgs.time !== 'number' && typeof msgs.timestamp === 'number') {
-            msgs.time = msgs.timestamp;
-          }
-          handleDataPoint(msgs);
+        // 生成随机颜色
+        function getRandomColor() {
+            const r = Math.floor(Math.random() * 200) + 30;
+            const g = Math.floor(Math.random() * 200) + 30;
+            const b = Math.floor(Math.random() * 200) + 30;
+            return `rgba(${r},${g},${b},1)`;
         }
-      } catch (e) {
-        // JSON解析失败忽略
-      }
-    };
-  </script>
+
+        /**
+         * 自动滚动容器到最右侧，显示最新数据
+         */
+        function scrollToRight() {
+            chartWrapper.scrollLeft = chartWrapper.scrollWidth;
+        }
+
+        /**
+         * 更新自定义图例
+         */
+        function updateCustomLegend() {
+            customLegendContainer.innerHTML = ''; // 清空
+
+            chart.data.datasets.forEach((dataset, index) => {
+                const legendItem = document.createElement('div');
+                legendItem.style.display = 'flex';
+                legendItem.style.alignItems = 'center';
+                legendItem.style.cursor = 'pointer';
+                legendItem.style.userSelect = 'none';
+                legendItem.style.gap = '8px';
+
+                // 颜色块
+                const colorBox = document.createElement('span');
+                colorBox.style.backgroundColor = dataset.borderColor;
+                colorBox.style.width = '20px';
+                colorBox.style.height = '20px';
+                colorBox.style.borderRadius = '4px';
+                legendItem.appendChild(colorBox);
+
+                // 标签文字
+                const labelText = document.createElement('span');
+                labelText.textContent = dataset.label;
+                labelText.style.color = '#1f2a56';
+                labelText.style.fontSize = '15px';
+                legendItem.appendChild(labelText);
+
+                // 颜色选择器
+                const colorInput = document.createElement('input');
+                colorInput.type = 'color';
+                // 将rgba转成hex，简单处理只取rgb部分
+                function rgbaToHex(rgba) {
+                    const parts = rgba.match(/\d+/g);
+                    if (!parts || parts.length < 3) return '#000000';
+                    return '#' + parts.slice(0, 3).map(x => {
+                        const hex = parseInt(x).toString(16);
+                        return hex.length === 1 ? '0' + hex : hex;
+                    }).join('');
+                }
+                colorInput.value = rgbaToHex(dataset.borderColor);
+                colorInput.title = '修改线条颜色';
+
+                colorInput.oninput = () => {
+                    const hex = colorInput.value;
+                    // 转成rgba，保持不透明度1
+                    dataset.borderColor = hexToRgba(hex, 1);
+                    dataset.backgroundColor = hexToRgba(hex, 1);
+                    colorBox.style.backgroundColor = dataset.borderColor;
+                    chart.update();
+                };
+
+                legendItem.appendChild(colorInput);
+
+                // 点击切换显示/隐藏
+                legendItem.onclick = (e) => {
+                    // 如果点击的是颜色选择器，阻止切换隐藏
+                    if (e.target === colorInput) return;
+
+                    const meta = chart.getDatasetMeta(index);
+                    meta.hidden = !meta.hidden;
+                    chart.update();
+                    legendItem.style.opacity = meta.hidden ? '0.4' : '1';
+                };
+
+                // 初始透明度
+                const meta = chart.getDatasetMeta(index);
+                legendItem.style.opacity = meta.hidden ? '0.4' : '1';
+
+                customLegendContainer.appendChild(legendItem);
+            });
+        }
+
+        // 辅助函数：hex转rgba字符串
+        function hexToRgba(hex, alpha = 1) {
+            const r = parseInt(hex.slice(1, 3), 16);
+            const g = parseInt(hex.slice(3, 5), 16);
+            const b = parseInt(hex.slice(5, 7), 16);
+            return `rgba(${r},${g},${b},${alpha})`;
+        }
+
+        /**
+         * 添加提醒信息 - 弹窗形式
+         * @param {string} label 标签名
+         * @param {number} value 当前值
+         */
+        // 新增数组存储多条提醒
+        const alertMessages = [];
+
+        // 修改 addAlert 函数，支持多条提醒
+        function addAlert(label, value) {
+            const nowStr = new Date().toLocaleTimeString();
+            const msg = `[${nowStr}] 警告：${label} 超过阈值，当前值 ${value}`;
+            alertMessages.push(msg);
+
+            // 将所有提醒合并显示，换行分隔
+            alertModalMessage.innerHTML = alertMessages.map(m => `<div>${m}</div>`).join('');
+            alertModal.style.display = 'flex';
+        }
+
+        // 关闭弹窗时清空所有提醒
+        alertModalCloseBtn.onclick = () => {
+            alertModal.style.display = 'none';
+            alertMessages.length = 0;  // 清空数组
+            alertModalMessage.innerHTML = '';
+        };
+
+        // 点击遮罩层关闭弹窗（可选）
+        alertModal.onclick = (e) => {
+            if (e.target === alertModal) {
+                alertModal.style.display = 'none';
+                alertMessages.length = 0;
+                alertModalMessage.innerHTML = '';
+            }
+        };
+
+
+        // 关闭弹窗事件
+        alertModalCloseBtn.onclick = () => {
+            alertModal.style.display = 'none';
+        };
+
+        // 点击遮罩层关闭弹窗（可选）
+        alertModal.onclick = (e) => {
+            if (e.target === alertModal) {
+                alertModal.style.display = 'none';
+            }
+        };
+
+        // 新增变量，记录最新数据时间戳
+        let latestDataTimestamp = 0;
+
+        /**
+         * 判断是否超过阈值
+         * @param {number} value 当前值
+         * @param {string} condition 判断条件 'gt'|'lt'|'eq'
+         * @param {number} threshold 阈值
+         * @returns {boolean}
+         */
+        function checkThreshold(value, condition, threshold) {
+            switch (condition) {
+                case 'gt': return value > threshold;
+                case 'lt': return value < threshold;
+                case 'eq': return value === threshold;
+                default: return false;
+            }
+        }
+
+        function handleDataPoint(msg) {
+            if (!datasets[msg.label]) {
+                const color = getRandomColor();
+                const newDataset = {
+                    label: msg.label,
+                    data: [],
+                    borderColor: color,
+                    backgroundColor: color,
+                    fill: false,
+                    tension: 0.3,
+                    pointRadius: 3,
+                    pointHoverRadius: 6,
+                };
+                datasets[msg.label] = newDataset;
+                chart.data.datasets.push(newDataset);
+
+                updateCustomLegend(); // 新增数据集后更新图例
+            }
+
+            const dataSet = datasets[msg.label];
+
+            // 这里假设 msg.time 是毫秒级时间戳，如果是秒级请乘以1000
+            const timeValue = typeof msg.time === 'number' ? msg.time : Date.now();
+
+            dataSet.data.push({ x: timeValue, y: msg.value });
+
+            // 限制数据点数量，避免内存和性能问题
+            if (dataSet.data.length > 1000) {
+                dataSet.data.shift();
+            }
+
+            // 更新最新数据时间戳
+            if (timeValue > latestDataTimestamp) {
+                latestDataTimestamp = timeValue;
+            }
+
+            chart.update('none'); // 使用无动画更新，提升性能
+
+            // 自动滚动到最右侧，显示最新数据
+            scrollToRight();
+
+            // 新增：阈值判断，超过阈值则提醒
+            if (alertThresholds[msg.label] !== undefined) {
+                const { condition, value: thresholdValue } = alertThresholds[msg.label];
+                if (checkThreshold(msg.value, condition, thresholdValue)) {
+                    addAlert(msg.label, msg.value);
+                }
+            }
+        }
+
+
+        /**
+         * 根据 currentTimeRangeMinutes 过滤数据点，只保留最近指定分钟数的数据
+         */
+        function filterDataByTimeRange() {
+            if (!chart.options || !chart.options.scales || !chart.options.scales.x) {
+                console.warn('chart.options.scales.x 未定义');
+                return;
+            }
+
+            if (currentTimeRangeMinutes <= 0) {
+                // 显示所有数据，移除时间范围限制
+                chart.options.scales.x.min = undefined;
+                chart.options.scales.x.max = undefined;
+            } else {
+                // 以最新数据时间为结束点
+                const endTime = latestDataTimestamp || Date.now();
+                const startTime = endTime - currentTimeRangeMinutes * 60 * 1000;
+                chart.options.scales.x.min = startTime;
+                chart.options.scales.x.max = endTime;
+            }
+        }
+
+
+        // WebSocket连接
+        const ws = new WebSocket(`ws://${location.host}/ws`);
+
+        const wsStatusEl = document.getElementById('wsStatus');
+
+        ws.onopen = () => {
+            console.log('WebSocket连接已建立');
+            wsStatusEl.textContent = '已连接';
+            wsStatusEl.style.color = 'green';
+        };
+
+        ws.onclose = () => {
+            console.log('WebSocket连接已关闭');
+            wsStatusEl.textContent = '已断开';
+            wsStatusEl.style.color = 'red';
+        };
+
+        ws.onerror = () => {
+            console.log('WebSocket连接错误');
+            wsStatusEl.textContent = '错误';
+            wsStatusEl.style.color = 'orange';
+        };
+
+        ws.onmessage = event => {
+            try {
+                const msgs = JSON.parse(event.data);
+
+                if (Array.isArray(msgs)) {
+                    msgs.forEach(msg => {
+                        if (
+                            msg.type === 'data' &&
+                            typeof msg.label === 'string' &&
+                            msg.label.length > 0 &&
+                            typeof msg.value === 'number' &&
+                            (typeof msg.time === 'number' || typeof msg.timestamp === 'number')
+                        ) {
+                            // 兼容 time 或 timestamp 字段
+                            if (typeof msg.time !== 'number' && typeof msg.timestamp === 'number') {
+                                msg.time = msg.timestamp;
+                            }
+                            handleDataPoint(msg);
+                        }
+                    });
+                } else if (
+                    msgs.type === 'data' &&
+                    typeof msgs.label === 'string' &&
+                    msgs.label.length > 0 &&
+                    typeof msgs.value === 'number' &&
+                    (typeof msgs.time === 'number' || typeof msgs.timestamp === 'number')
+                ) {
+                    if (typeof msgs.time !== 'number' && typeof msgs.timestamp === 'number') {
+                        msgs.time = msgs.timestamp;
+                    }
+                    handleDataPoint(msgs);
+                }
+            } catch (e) {
+                // JSON解析失败忽略
+                console.warn('收到无效数据:', event.data);
+            }
+        };
+
+        // 重置缩放按钮事件
+        document.getElementById('resetZoomBtn').onclick = () => {
+            chart.resetZoom();
+        };
+
+        // 导出PNG按钮事件
+        document.getElementById('exportPngBtn').onclick = () => {
+            const link = document.createElement('a');
+            link.download = `chart_export_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.png`;
+            link.href = chart.toBase64Image();
+            link.click();
+        };
+
+        // 时间范围按钮事件绑定
+        document.querySelectorAll('.timeRangeBtn').forEach(btn => {
+            btn.onclick = () => {
+                const minutes = parseInt(btn.getAttribute('data-minutes'), 10);
+                currentTimeRangeMinutes = minutes;
+                // 过滤数据后更新图表
+                filterDataByTimeRange();
+                chart.update();
+
+                // 视觉反馈：高亮当前选中按钮
+                document.querySelectorAll('.timeRangeBtn').forEach(b => b.style.backgroundColor = '#1f2a56');
+                btn.style.backgroundColor = '#3a4a8f';
+            };
+        });
+
+        // 初始化时默认选中“全部数据”按钮
+        document.querySelector('.timeRangeBtn[data-minutes="0"]').click();
+    </script>
 </body>
 
 </html>

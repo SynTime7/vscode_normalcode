@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>多线程并发异步发送多条HTTP请求</title>
+<style>
+  /* 页面整体样式 */
+  body { font-family: Arial, sans-serif; margin: 20px; background: #f0f2f5; }
+  h2 { margin-bottom: 10px; }
+  #container {
+    display: flex;
+    height: 90vh;
+    user-select: none; /* 拖拽时不选中文字 */
+  }
+  #leftPanel, #rightPanel {
+    background: white;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    padding: 12px;
+    box-sizing: border-box;
+    overflow-y: auto;
+    height: 100%;
+  }
+  #leftPanel {
+    width: 60%;
+    min-width: 150px;
+  }
+  #rightPanel {
+    width: 40%;
+    min-width: 150px;
+    white-space: pre-wrap; /* 保持响应内容格式 */
+  }
+  #dragbar {
+    width: 5px;
+    background: #ccc;
+    cursor: col-resize;
+    user-select: none;
+  }
+  .request-item {
+    border: 1px solid #ccc;
+    padding: 12px;
+    margin-bottom: 12px;
+    border-radius: 6px;
+    background: #fff;
+  }
+  .request-item > div {
+    margin-bottom: 6px;
+  }
+  label {
+    display: inline-block;
+    width: 80px;
+    font-weight: bold;
+  }
+  input[type="text"], select, textarea, input[type="number"] {
+    width: calc(100% - 90px);
+    padding: 5px;
+    box-sizing: border-box;
+  }
+  textarea {
+    height: 60px;
+    resize: vertical;
+  }
+  button {
+    padding: 6px 12px;
+    margin-right: 10px;
+    cursor: pointer;
+  }
+  #controls {
+    margin-bottom: 10px;
+  }
+  #intervalInput {
+    width: 80px;
+  }
+  #results {
+    height: 100%;
+    overflow-y: auto;
+    font-family: Consolas, monospace;
+    font-size: 13px;
+  }
+  .response-success { color: green; }
+  .response-error { color: red; }
+  #stats {
+    font-weight: bold;
+    margin-bottom: 8px;
+  }
+</style>
+</head>
+<body>
+
+<h2>多线程并发异步发送多条HTTP请求</h2>
+
+<div id="container">
+  <div id="leftPanel">
+    <div id="controls">
+      <button id="addRequestBtn">添加请求</button>
+      <button id="sendAllBtn">发送所有请求</button>
+      <button id="startLoopBtn">开始循环发送</button>
+      <button id="stopLoopBtn" disabled>停止循环发送</button>
+      <label style="margin-left:20px;">
+        请求间隔(ms):
+        <input type="number" id="intervalInput" value="200" min="0" />
+      </label>
+      <label style="margin-left:20px;">
+        <input type="checkbox" id="showTimeCheckbox" checked />
+        显示请求/响应时间
+      </label>
+    </div>
+    <div id="requestsContainer" style="flex: 1 1 auto; overflow-y: auto; height: calc(100% - 70px);"></div>
+  </div>
+
+  <div id="dragbar"></div>
+
+  <div id="rightPanel">
+    <h3>响应结果：</h3>
+    <div id="stats"></div>
+    <div id="results"></div>
+  </div>
+</div>
+
+<script>
+  // 获取页面元素引用
+  const container = document.getElementById('container');
+  const leftPanel = document.getElementById('leftPanel');
+  const rightPanel = document.getElementById('rightPanel');
+  const dragbar = document.getElementById('dragbar');
+
+  let isDragging = false; // 标记是否正在拖拽分割条
+
+  // 拖拽分割条开始
+  dragbar.addEventListener('mousedown', function(e) {
+    isDragging = true;
+    document.body.style.cursor = 'col-resize'; // 改变鼠标样式
+  });
+
+  // 拖拽分割条结束
+  document.addEventListener('mouseup', function(e) {
+    if (isDragging) {
+      isDragging = false;
+      document.body.style.cursor = 'default';
+    }
+  });
+
+  // 拖拽分割条移动时调整左右面板宽度
+  document.addEventListener('mousemove', function(e) {
+    if (!isDragging) return;
+    let containerOffsetLeft = container.getBoundingClientRect().left;
+    let pointerRelativeXpos = e.clientX - containerOffsetLeft;
+    let minWidth = 150; // 左右面板最小宽度
+    let maxWidth = container.clientWidth - minWidth - dragbar.offsetWidth;
+    if (pointerRelativeXpos < minWidth) pointerRelativeXpos = minWidth;
+    if (pointerRelativeXpos > maxWidth) pointerRelativeXpos = maxWidth;
+
+    leftPanel.style.width = pointerRelativeXpos + 'px';
+    rightPanel.style.width = (container.clientWidth - pointerRelativeXpos - dragbar.offsetWidth) + 'px';
+  });
+
+  // 获取控制按钮和容器元素
+  const requestsContainer = document.getElementById('requestsContainer');
+  const addRequestBtn = document.getElementById('addRequestBtn');
+  const sendAllBtn = document.getElementById('sendAllBtn');
+  const startLoopBtn = document.getElementById('startLoopBtn');
+  const stopLoopBtn = document.getElementById('stopLoopBtn');
+  const resultsDiv = document.getElementById('results');
+  const statsDiv = document.getElementById('stats');
+  const intervalInput = document.getElementById('intervalInput');
+  const showTimeCheckbox = document.getElementById('showTimeCheckbox');
+
+  let loopSending = false; // 标记是否处于循环发送状态
+
+  // 请求统计数据
+  let totalRequests = 0;
+  let successCount = 0;
+  let failCount = 0;
+
+  // 更新统计信息显示
+  function updateStats() {
+    statsDiv.textContent = `总请求数: ${totalRequests}，成功数: ${successCount}，失败数(丢包): ${failCount}，丢包率: ${totalRequests > 0 ? ((failCount/totalRequests)*100).toFixed(2) : 0}%`;
+  }
+
+  // 创建一个请求项的DOM结构
+  function createRequestItem() {
+    const div = document.createElement('div');
+    div.className = 'request-item';
+
+    div.innerHTML = `
+      <div>
+        <label>URL:</label>
+        <input type="text" class="urlInput" placeholder="http://example.com/api" />
+      </div>
+      <div>
+        <label>方法:</label>
+        <select class="methodSelect">
+          <option>GET</option>
+          <option>POST</option>
+          <option>PUT</option>
+          <option>DELETE</option>
+          <option>HEAD</option>
+          <option>OPTIONS</option>
+          <option>PATCH</option>
+        </select>
+      </div>
+      <div>
+        <label>请求头:</label>
+        <textarea class="headersInput" placeholder="Key: Value\nAuthorization: Bearer token"></textarea>
+      </div>
+      <div>
+        <label>体格式:</label>
+        <select class="bodyFormatSelect">
+          <option value="text">文本</option>
+          <option value="json">JSON</option>
+          <option value="form">表单</option>
+        </select>
+      </div>
+      <div>
+        <label>请求体:</label>
+        <textarea class="bodyInput" placeholder="请求体内容"></textarea>
+      </div>
+      <div>
+        <label>超时(s):</label>
+        <input type="number" class="timeoutInput" value="10" min="1" max="120" />
+      </div>
+      <button class="removeBtn" style="background:#e74c3c;color:#fff;border:none;border-radius:4px;">删除</button>
+    `;
+
+    // 删除按钮功能，移除当前请求项
+    div.querySelector('.removeBtn').addEventListener('click', () => {
+      requestsContainer.removeChild(div);
+    });
+
+    return div;
+  }
+
+  // 点击“添加请求”按钮，添加一个新的请求项
+  addRequestBtn.addEventListener('click', () => {
+    const item = createRequestItem();
+    requestsContainer.appendChild(item);
+  });
+
+  // 页面加载时自动添加一个请求项
+  addRequestBtn.click();
+
+  // 解析请求头文本，转换为对象格式
+  function parseHeaders(text) {
+    const headers = {};
+    text.split('\n').forEach(line => {
+      const idx = line.indexOf(':');
+      if (idx > 0) {
+        const key = line.slice(0, idx).trim();
+        const val = line.slice(idx + 1).trim();
+        if (key) headers[key] = val;
+      }
+    });
+    return headers;
+  }
+
+  // 格式化时间，显示时分秒和毫秒
+  function formatTime(date) {
+    return date.toLocaleTimeString() + '.' + date.getMilliseconds().toString().padStart(3, '0');
+  }
+
+  /**
+   * 发送单个HTTP请求
+   * @param {Object} req 请求参数对象
+   * @param {number} index 请求序号（用于显示）
+   */
+  async function sendRequest(req, index) {
+    const container = document.createElement('div');
+    const showTime = showTimeCheckbox.checked; // 是否显示时间信息
+    const reqStart = new Date(); // 请求开始时间
+
+    container.textContent = `请求 #${index} 发送中... URL: ${req.url}`;
+    resultsDiv.appendChild(container);
+    resultsDiv.scrollTop = resultsDiv.scrollHeight; // 滚动到底部显示最新请求
+
+    totalRequests++;
+    updateStats();
+
+    try {
+      // 构造fetch请求参数
+      const options = {
+        method: req.method,
+        headers: {...req.headers},
+        signal: null,
+      };
+
+      // 非GET/HEAD请求需要设置请求体
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        if (req.bodyFormat === 'json') {
+          // JSON格式请求体，先尝试解析再序列化，确保格式正确
+          try {
+            options.body = JSON.stringify(JSON.parse(req.body));
+            if (!options.headers['Content-Type']) {
+              options.headers['Content-Type'] = 'application/json';
+            }
+          } catch (e) {
+            // JSON格式错误，显示错误信息并计为失败
+            container.innerHTML = `<span class="response-error">请求 #${index} JSON格式错误: ${e.message}</span>`;
+            failCount++;
+            updateStats();
+            return;
+          }
+        } else if (req.bodyFormat === 'form') {
+          // 表单格式，直接使用文本
+          options.body = req.body;
+          if (!options.headers['Content-Type']) {
+            options.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+          }
+        } else {
+          // 纯文本格式
+          options.body = req.body;
+          if (!options.headers['Content-Type']) {
+            options.headers['Content-Type'] = 'text/plain';
+          }
+        }
+      }
+
+      // 设置请求超时控制
+      const controller = new AbortController();
+      options.signal = controller.signal;
+      const timeoutId = setTimeout(() => controller.abort(), req.timeout * 1000);
+
+      // 发送请求
+      const response = await fetch(req.url, options);
+      clearTimeout(timeoutId);
+
+      const reqEnd = new Date(); // 请求结束时间
+
+      // 根据响应Content-Type决定如何解析响应体
+      const contentType = response.headers.get('content-type') || '';
+      let text;
+      if (contentType.includes('application/json')) {
+        const json = await response.json();
+        text = JSON.stringify(json, null, 2);
+      } else {
+        text = await response.text();
+      }
+
+      // 构造时间信息字符串
+      let timeInfo = '';
+      if (showTime) {
+        timeInfo = `请求时间: ${formatTime(reqStart)}\n响应时间: ${formatTime(reqEnd)}\n耗时: ${(reqEnd - reqStart)} ms\n`;
+      }
+
+      // 根据响应状态更新成功/失败计数
+      if (response.ok) {
+        successCount++;
+      } else {
+        failCount++;
+      }
+      updateStats();
+
+      // 显示响应结果
+      container.innerHTML = `<span class="response-success">请求 #${index} 响应状态: ${response.status}</span>\n${timeInfo}响应内容:\n${text}`;
+    } catch (error) {
+      // 请求异常处理（超时或其他错误）
+      const reqEnd = new Date();
+      let timeInfo = '';
+      if (showTime) {
+        timeInfo = `请求时间: ${formatTime(reqStart)}\n响应时间: ${formatTime(reqEnd)}\n耗时: ${(reqEnd - reqStart)} ms\n`;
+      }
+      failCount++;
+      updateStats();
+
+      if (error.name === 'AbortError') {
+        container.innerHTML = `<span class="response-error">请求 #${index} 超时 (${req.timeout}s)</span>\n${timeInfo}`;
+      } else {
+        container.innerHTML = `<span class="response-error">请求 #${index} 失败: ${error.message}</span>\n${timeInfo}`;
+      }
+    }
+    resultsDiv.scrollTop = resultsDiv.scrollHeight; // 滚动到底部
+  }
+
+  /**
+   * 点击“发送所有请求”按钮事件处理
+   * 并发发送所有请求，间隔由intervalInput控制
+   */
+  sendAllBtn.addEventListener('click', async () => {
+    resultsDiv.innerHTML = ''; // 清空结果区
+    totalRequests = 0;
+    successCount = 0;
+    failCount = 0;
+    updateStats();
+
+    const interval = parseInt(intervalInput.value, 10) || 0; // 请求间隔，单位毫秒
+
+    const requestItems = Array.from(requestsContainer.children);
+    if (requestItems.length === 0) {
+      alert('请至少添加一个请求');
+      return;
+    }
+
+    // 读取所有请求参数
+    const requests = [];
+    for (const item of requestItems) {
+      const url = item.querySelector('.urlInput').value.trim();
+      if (!url) {
+        alert('存在空URL，请填写完整');
+        return;
+      }
+      const method = item.querySelector('.methodSelect').value.toUpperCase();
+      const headersText = item.querySelector('.headersInput').value;
+      const headers = parseHeaders(headersText);
+      const bodyFormat = item.querySelector('.bodyFormatSelect').value;
+      const body = item.querySelector('.bodyInput').value;
+      const timeout = parseInt(item.querySelector('.timeoutInput').value, 10) || 10;
+
+      requests.push({url, method, headers, bodyFormat, body, timeout});
+    }
+
+    // 禁用按钮，防止重复点击
+    sendAllBtn.disabled = true;
+    addRequestBtn.disabled = true;
+    startLoopBtn.disabled = true;
+    stopLoopBtn.disabled = false;
+
+    // 并发发送请求，使用setTimeout控制每个请求的启动时间，实现间隔效果
+    const promises = requests.map((req, idx) => {
+      return new Promise(resolve => {
+        setTimeout(() => {
+          sendRequest(req, idx + 1).then(resolve);
+        }, idx * interval);
+      });
+    });
+
+    // 等待所有请求完成
+    await Promise.all(promises);
+
+    // 恢复按钮状态
+    sendAllBtn.disabled = false;
+    addRequestBtn.disabled = false;
+    startLoopBtn.disabled = false;
+    stopLoopBtn.disabled = true;
+  });
+
+  /**
+   * 点击“开始循环发送”按钮事件处理
+   * 持续循环发送所有请求，直到点击停止
+   */
+  startLoopBtn.addEventListener('click', async () => {
+    if (loopSending) return; // 防止重复启动
+    loopSending = true;
+
+    totalRequests = 0;
+    successCount = 0;
+    failCount = 0;
+    updateStats();
+    resultsDiv.innerHTML = '';
+
+    // 禁用相关按钮
+    sendAllBtn.disabled = true;
+    addRequestBtn.disabled = true;
+    startLoopBtn.disabled = true;
+    stopLoopBtn.disabled = false;
+
+    const interval = parseInt(intervalInput.value, 10) || 0;
+
+    const requestItems = Array.from(requestsContainer.children);
+    if (requestItems.length === 0) {
+      alert('请至少添加一个请求');
+      loopSending = false;
+      sendAllBtn.disabled = false;
+      addRequestBtn.disabled = false;
+      startLoopBtn.disabled = false;
+      stopLoopBtn.disabled = true;
+      return;
+    }
+
+    // 读取请求参数
+    const requests = [];
+    for (const item of requestItems) {
+      const url = item.querySelector('.urlInput').value.trim();
+      if (!url) {
+        alert('存在空URL，请填写完整');
+        loopSending = false;
+        sendAllBtn.disabled = false;
+        addRequestBtn.disabled = false;
+        startLoopBtn.disabled = false;
+        stopLoopBtn.disabled = true;
+        return;
+      }
+      const method = item.querySelector('.methodSelect').value.toUpperCase();
+      const headersText = item.querySelector('.headersInput').value;
+      const headers = parseHeaders(headersText);
+      const bodyFormat = item.querySelector('.bodyFormatSelect').value;
+      const body = item.querySelector('.bodyInput').value;
+      const timeout = parseInt(item.querySelector('.timeoutInput').value, 10) || 10;
+
+      requests.push({url, method, headers, bodyFormat, body, timeout});
+    }
+
+    // 循环发送请求，直到loopSending被置为false
+    while(loopSending) {
+      for(let idx=0; idx<requests.length; idx++) {
+        if (!loopSending) break; // 停止循环
+        await sendRequest(requests[idx], idx + 1);
+        // 请求间隔等待（除最后一个请求外）
+        if (idx < requests.length -1) {
+          await new Promise(r => setTimeout(r, interval));
+        }
+      }
+      // 每轮请求结束后，再等待一次间隔
+      if(loopSending) {
+        await new Promise(r => setTimeout(r, interval));
+      }
+    }
+
+    // 循环结束后恢复按钮状态
+    sendAllBtn.disabled = false;
+    addRequestBtn.disabled = false;
+    startLoopBtn.disabled = false;
+    stopLoopBtn.disabled = true;
+  });
+
+  // 点击“停止循环发送”按钮事件处理
+  stopLoopBtn.addEventListener('click', () => {
+    loopSending = false; // 终止循环发送
+    statsDiv.textContent += ' （循环发送已停止）';
+    sendAllBtn.disabled = false;
+    addRequestBtn.disabled = false;
+    startLoopBtn.disabled = false;
+    stopLoopBtn.disabled = true;
+  });
+</script>
+
+</body>
+</html>
